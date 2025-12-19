@@ -3,7 +3,7 @@ import { dirname, join } from 'path';
 import { readdir } from 'fs/promises';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { zodToJsonSchema } from '../utils/zodToJsonSchema.js';
+import { zodToJsonSchema } from '#utils/zodToJsonSchema.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
