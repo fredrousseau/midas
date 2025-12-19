@@ -112,24 +112,48 @@ export function registerRoutes(parameters) {
 	if (isSecuredServer) {
 		const authMiddleware = createAuthMiddleware(oauthService);
 
-		// Apply auth middleware to API routes only, not WebUI static files
+		// Apply auth middleware to API routes AND WebUI static files
 		app.use((req, res, next) => {
-			// Skip authentication for WebUI public paths (login.html and auth-client.js)
+			// Public paths that don't require authentication
 			const publicPaths = ['/login.html', '/auth-client.js'];
 			if (publicPaths.includes(req.path)) {
 				return next();
 			}
 
-			// Skip authentication for non-API paths (static files will be handled by WebUI middleware)
-			if (!req.path.startsWith('/api/') && !req.path.startsWith('/mcp')) {
+			// API routes and MCP - require Bearer token in Authorization header
+			if (req.path.startsWith('/api/') || req.path.startsWith('/mcp')) {
+				return authMiddleware(req, res, next);
+			}
+
+			// WebUI static HTML files - check for valid token in HTTP-only cookie
+			// This prevents client-side authentication bypass
+			if (req.path.endsWith('.html') || req.path === '/' || req.path === '/index.html') {
+				const token = req.cookies.webui_auth_token;
+
+				// If no cookie or invalid token, redirect to login
+				if (!token) {
+					return res.redirect('/login.html');
+				}
+
+				const validation = oauthService.validateToken(token);
+
+				if (!validation.valid) {
+					// Clear invalid cookie and redirect to login
+					res.clearCookie('webui_auth_token');
+					return res.redirect('/login.html');
+				}
+
+				// Token is valid, allow access
+				req.user = { id: validation.payload.sub, scope: validation.payload.scope };
 				return next();
 			}
 
-			// Apply authentication for API routes
-			return authMiddleware(req, res, next);
+			// For other static files (JS, CSS, etc), allow access
+			// These will be blocked by browser if the HTML page couldn't load
+			return next();
 		});
 
-		logger.info('Authentication middleware enabled for API routes');
+		logger.info('Authentication middleware enabled for API routes and WebUI (server-side)');
 	} else {
 		logger.info('Authentication middleware disabled (SECURED_SERVER=false)');
 	}
@@ -362,10 +386,6 @@ export function registerRoutes(parameters) {
 			};
 		})
 	);
-
-	// ========== Error handler middleware (must be last) ==========
-
-	app.use('/api/v1', errorHandler(logger));
 
 	logger.info('Oauth/MCP/API routes registered successfully');
 }

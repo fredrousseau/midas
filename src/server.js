@@ -18,6 +18,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 
 import { logger } from './Logger/LoggerService.js';
 
@@ -75,6 +76,7 @@ app.use(
 // Body parsing middleware
 app.use(express.json()); // Parse application/json
 app.use(express.urlencoded({ extended: true })); // Parse application/x-www-form-urlencoded
+app.use(cookieParser()); // Parse cookies
 
 /**
  * HTTP Request Logger Middleware
@@ -226,23 +228,70 @@ registerRoutes({
 /**
  * Serve static files for the Web UI
  * Note: This is placed AFTER API routes so API routes take precedence
- * Authentication is handled client-side in app.js which redirects to login if not authenticated
+ * Authentication is handled SERVER-SIDE via HTTP-only cookies in routes.js middleware
+ * HTML files are protected and will redirect to /login.html if the cookie is missing or invalid
  */
+app.use(express.static('src/WebUI'));
+
 if (isSecuredServer) {
-	// Serve all static files without server-side authentication
-	// Client-side JavaScript (app.js) will check authentication and redirect if needed
-	app.use(express.static('src/WebUI'));
-	logger.info('WebUI static files served (client-side authentication enabled)');
+	logger.info('WebUI static files served (server-side authentication enabled via HTTP-only cookies)');
 } else {
-	app.use(express.static('src/WebUI'));
 	logger.warn('WebUI served WITHOUT authentication (SECURED_SERVER=false)');
 }
+
+/**
+ * Global error handler middleware
+ * Catches all errors from any route and provides consistent error responses
+ * Must be placed AFTER all routes but BEFORE the 404 handler
+ */
+app.use((err, req, res, next) => {
+	// Log error details
+	const errorContext = {
+		method: req.method,
+		path: req.path,
+		ip: req.ip || req.connection.remoteAddress,
+		error: err.message,
+		stack: err.stack,
+	};
+
+	// Determine log level based on error type
+	if (err.statusCode && err.statusCode < 500) {
+		logger.warn('Client error occurred', errorContext);
+	} else {
+		logger.error('Server error occurred', errorContext);
+	}
+
+	// Don't send response if headers already sent
+	if (res.headersSent) {
+		return next(err);
+	}
+
+	// Determine status code
+	const statusCode = err.statusCode || err.status || 500;
+
+	// Build error response
+	const errorResponse = {
+		success: false,
+		error: {
+			type: err.name || 'Error',
+			message: err.message || 'An unexpected error occurred',
+		},
+	};
+
+	// Include stack trace in development mode only
+	if (process.env.NODE_ENV === 'development') {
+		errorResponse.error.stack = err.stack;
+	}
+
+	// Send error response
+	res.status(statusCode).json(errorResponse);
+});
 
 /**
  * 404 Error Handler
  * Catch-all middleware for undefined routes (must be last)
  */
-app.use((req, res) => {
+app.use((_req, res) => {
 	res.status(404).json({ error: 'Route not found' });
 });
 

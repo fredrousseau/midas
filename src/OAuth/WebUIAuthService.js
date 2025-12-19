@@ -191,6 +191,16 @@ export class WebUIAuthService {
 		// Create tokens
 		const tokens = this.createWebUIToken(username);
 
+		// Set secure HTTP-only cookie with access token for server-side authentication
+		const isProduction = process.env.NODE_ENV === 'production';
+		res.cookie('webui_auth_token', tokens.access_token, {
+			httpOnly: true, // Prevent JavaScript access (XSS protection)
+			secure: isProduction, // Only send over HTTPS in production
+			sameSite: 'strict', // CSRF protection
+			maxAge: tokens.expires_in * 1000, // Convert to milliseconds
+			path: '/'
+		});
+
 		res.status(200).json(tokens);
 	}
 
@@ -229,6 +239,16 @@ export class WebUIAuthService {
 		// Create new tokens
 		const tokens = this.createWebUIToken(validation.payload.sub);
 
+		// Update the HTTP-only cookie with new access token
+		const isProduction = process.env.NODE_ENV === 'production';
+		res.cookie('webui_auth_token', tokens.access_token, {
+			httpOnly: true,
+			secure: isProduction,
+			sameSite: 'strict',
+			maxAge: tokens.expires_in * 1000,
+			path: '/'
+		});
+
 		res.status(200).json(tokens);
 	}
 
@@ -241,6 +261,14 @@ export class WebUIAuthService {
 		// In a stateless JWT system, logout is handled client-side by deleting the token
 		// This endpoint exists for consistency and future extensions (e.g., token blacklisting)
 		this.logger.info('WebUI logout requested');
+
+		// Clear the HTTP-only cookie
+		res.clearCookie('webui_auth_token', {
+			httpOnly: true,
+			secure: process.env.NODE_ENV === 'production',
+			sameSite: 'strict',
+			path: '/'
+		});
 
 		res.status(200).json({
 			success: true,

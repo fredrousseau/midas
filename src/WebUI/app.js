@@ -676,16 +676,11 @@ async function tryInitCharts() {
     if (typeof LightweightCharts !== 'undefined' && window.lightweightChartsLoaded) {
         try {
             // Initialize auth client if available
+            // Note: Authentication is now handled server-side via HTTP-only cookies
+            // The server will redirect to /login.html if not authenticated
             if (window.authClient) {
                 authClient = window.authClient;
-
-                // Check if authenticated, redirect to login if not
-                if (!authClient.isAuthenticated()) {
-                    window.location.href = '/login.html';
-                    return;
-                }
-
-                console.log('Auth client initialized and user authenticated');
+                console.log('Auth client initialized');
             }
 
             // Load configuration first
