@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Indicators Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-layout {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            min-width: 320px;
+            max-width: 320px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #222 100%);
+            border-right: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed {
+            width: 0;
+            min-width: 0;
+            max-width: 0;
+            border-right-width: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%);
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2962ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .indicator-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 11px;
+            color: #999;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .stat-value {
+            color: #2962ff;
+            font-weight: 600;
+        }
+
+        .clear-all-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #999;
+            padding: 6px 12px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .clear-all-btn:hover {
+            border-color: #ef5350;
+            color: #ef5350;
+            background: rgba(239, 83, 80, 0.1);
+        }
+
+        .search-container {
+            padding: 10px 20px;
+            background: #1a1a1a;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #2a2a2a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 12px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: #2962ff;
+        }
+
+        .search-input::placeholder {
+            color: #666;
+        }
+
+        /* Selected Indicators Section */
+        .selected-indicators-section {
+            background: #1a1a1a;
+            border-bottom: 1px solid #2a2a2a;
+            border-top: 1px solid #2a2a2a;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .selected-indicators-header {
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #252525 0%, #1e1e1e 100%);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #2962ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .selected-indicators-list {
+            padding: 5px 10px;
+        }
+
+        .selected-indicator-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+
+        .selected-indicator-item:hover {
+            background: #252525;
+            border-color: #2962ff;
+        }
+
+        .selected-indicator-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.2s;
+        }
+
+        .selected-indicator-color:hover {
+            transform: scale(1.2);
+            border-color: #fff;
+        }
+
+        .selected-indicator-name {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+
+        .selected-indicator-controls {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .selected-indicator-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #999;
+            padding: 4px 8px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .selected-indicator-btn:hover {
+            background: #2a2a2a;
+            border-color: #2962ff;
+            color: #2962ff;
+        }
+
+        .selected-indicator-btn.delete:hover {
+            border-color: #ef5350;
+            color: #ef5350;
+        }
+
+        .selected-indicator-btn.hidden-indicator {
+            opacity: 0.5;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .indicator-category {
+            margin-bottom: 8px;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            background: #1e1e1e;
+            overflow: hidden;
+        }
+
+        .category-header {
+            padding: 12px 15px;
+            background: linear-gradient(135deg, #252525 0%, #1e1e1e 100%);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+            user-select: none;
+        }
+
+        .category-header:hover {
+            background: linear-gradient(135deg, #2a2a2a 0%, #232323 100%);
+        }
+
+        .category-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: #2962ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .category-arrow {
+            color: #666;
+            transition: transform 0.2s;
+            font-size: 12px;
+        }
+
+        .category-header.open .category-arrow {
+            transform: rotate(90deg);
+        }
+
+        .category-items {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .category-items.open {
+            max-height: 500px;
+        }
+
+        .indicator-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: #1a1a1a;
+            border-bottom: 1px solid #252525;
+            font-size: 12px;
+            transition: all 0.15s ease;
+        }
+
+        .indicator-item:last-child {
+            border-bottom: none;
+        }
+
+        .indicator-item:hover {
+            background: #222;
+        }
+
+        .indicator-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #2962ff;
+            flex-shrink: 0;
+        }
+
+        .indicator-item label {
+            cursor: pointer;
+            user-select: none;
+            flex: 1;
+            font-weight: 500;
+            color: #d1d4dc;
+        }
+
+        .indicator-item input[type="checkbox"]:checked + label {
+            color: #2962ff;
+        }
+
+        .indicator-controls {
+            display: none;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .visibility-btn,
+        .color-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #999;
+            padding: 4px 8px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .visibility-btn:hover,
+        .color-btn:hover {
+            background: #2a2a2a;
+            border-color: #2962ff;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #333;
+            border-top-color: #2962ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toggle Button */
+        .sidebar-toggle {
+            position: fixed;
+            left: 320px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 32px;
+            height: 80px;
+            background: linear-gradient(135deg, #2962ff 0%, #1e53e5 100%);
+            border: none;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            z-index: 101;
+            box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .sidebar-toggle:hover {
+            background: linear-gradient(135deg, #1e53e5 0%, #1643c7 100%);
+            width: 36px;
+        }
+
+        .sidebar-toggle.sidebar-closed {
+            left: 0;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: margin-right 0.3s ease;
+        }
+
+        .main-content.data-panel-open {
+            margin-right: 300px;
+        }
+
+        /* Data Panel */
+        .data-panel {
+            position: fixed;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 300px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #222 100%);
+            border-left: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: 150;
+            box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .data-panel.open {
+            transform: translateX(0);
+        }
+
+        .data-panel-header {
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%);
+            border-bottom: 1px solid #2a2a2a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .data-panel-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #2962ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .data-panel-close {
+            background: transparent;
+            border: 1px solid #444;
+            color: #999;
+            padding: 4px 8px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s;
+        }
+
+        .data-panel-close:hover {
+            background: #2a2a2a;
+            border-color: #ef5350;
+            color: #ef5350;
+        }
+
+        .data-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px 20px;
+        }
+
+        .data-section {
+            margin-bottom: 20px;
+        }
+
+        .data-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #2962ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px solid #252525;
+        }
+
+        .data-row:last-child {
+            border-bottom: none;
+        }
+
+        .data-label {
+            color: #999;
+            font-weight: 500;
+        }
+
+        .data-value {
+            color: #e0e0e0;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+        }
+
+        .data-value.positive {
+            color: #26a69a;
+        }
+
+        .data-value.negative {
+            color: #ef5350;
+        }
+
+        .data-empty {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        .controls {
+            background: linear-gradient(135deg, #1e1e1e 0%, #222 100%);
+            padding: 20px 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 11px;
+            color: #999;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        input, select, button {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 13px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #2962ff;
+        }
+
+        button {
+            background: #2962ff;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1e53e5;
+        }
+
+        button:disabled {
+            background: #444;
+            cursor: not-allowed;
+        }
+
+        .charts-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: auto;
+            padding: 20px 30px;
+            gap: 20px;
+        }
+
+        .chart-wrapper {
+            background: linear-gradient(135deg, #1a1a1a 0%, #222 100%);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            border: 1px solid #2a2a2a;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .chart-info {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .chart-container {
+            position: relative;
+        }
+
+        .chart-legend-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .legend-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: rgba(26, 26, 26, 0.85);
+            border: 1px solid #2a2a2a;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #d1d4dc;
+            backdrop-filter: blur(4px);
+            pointer-events: auto;
+            transition: all 0.2s;
+        }
+
+        .legend-badge:hover {
+            background: rgba(42, 42, 42, 0.95);
+            border-color: #2962ff;
+        }
+
+        .legend-badge.hidden {
+            opacity: 0.4;
+        }
+
+        .legend-badge-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .legend-badge-name {
+            flex: 1;
+            white-space: nowrap;
+        }
+
+        .legend-badge-controls {
+            display: flex;
+            gap: 4px;
+        }
+
+        .legend-badge-btn {
+            background: transparent;
+            border: none;
+            color: #999;
+            padding: 2px 4px;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .legend-badge-btn:hover {
+            background: #2a2a2a;
+            color: #2962ff;
+        }
+
+        #mainChart {
+            height: 500px;
+        }
+
+        #indicatorChart {
+            height: 200px;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 30px;
+            text-align: center;
+            display: none;
+            font-size: 12px;
+        }
+
+        .status.success {
+            background: #1b5e20;
+            color: #a5d6a7;
+        }
+
+        .status.error {
+            background: #b71c1c;
+            color: #ef9a9a;
+        }
+
+        .status.loading {
+            background: #01579b;
+            color: #81d4fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Indicateurs</div>
+                <div class="indicator-stats">
+                    <div class="stat-item">
+                        <span>Sélectionnés:</span>
+                        <span class="stat-value" id="selectedCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Total:</span>
+                        <span class="stat-value" id="totalCount">-</span>
+                    </div>
+                </div>
+                <button class="clear-all-btn" id="clearAllBtn" style="display: none;">Tout désélectionner</button>
+            </div>
+            <div class="search-container">
+                <input type="text" class="search-input" id="indicatorSearch" placeholder="Rechercher un indicateur...">
+            </div>
+
+            <!-- Selected Indicators Section -->
+            <div class="selected-indicators-section" id="selectedIndicatorsSection" style="display: none;">
+                <div class="selected-indicators-header">
+                    <span class="section-title">Indicateurs Actifs</span>
+                </div>
+                <div class="selected-indicators-list" id="selectedIndicatorsList">
+                    <!-- Selected indicators will be added here dynamically -->
+                </div>
+            </div>
+
+            <div class="sidebar-content">
+                <div id="indicatorList">
+                    <div style="text-align: center; padding: 20px; color: #999; font-size: 12px;">
+                        Chargement du catalogue...
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle">
+            ‹
+        </button>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="status" class="status"></div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label for="symbol">Symbol</label>
+                    <input type="text" id="symbol" value="BTCUSDT" placeholder="ex: BTCUSDT">
+                </div>
+
+                <div class="control-group">
+                    <label for="timeframe">Timeframe</label>
+                    <select id="timeframe">
+                        <option value="1m">1 minute</option>
+                        <option value="5m">5 minutes</option>
+                        <option value="15m">15 minutes</option>
+                        <option value="1h" selected>1 heure</option>
+                        <option value="4h">4 heures</option>
+                        <option value="1d">1 jour</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="bars">Nombre de barres</label>
+                    <input type="number" id="bars" value="200" min="50" max="1000">
+                </div>
+
+                <div class="control-group">
+                    <label>Actions</label>
+                    <button id="loadBtn">Charger les données</button>
+                </div>
+            </div>
+
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <div class="chart-header">
+                        <div class="chart-title" id="chartTitle">Prix & Indicateurs</div>
+                        <div class="chart-info" id="chartInfo"></div>
+                    </div>
+                    <div class="chart-container">
+                        <div id="mainChart"></div>
+                    </div>
+                </div>
+
+                <div class="chart-wrapper" id="indicatorChartWrapper" style="display: none;">
+                    <div class="chart-header">
+                        <div class="chart-title" id="indicatorTitle">Indicateurs</div>
+                    </div>
+                    <div class="chart-container">
+                        <div id="indicatorChart"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Data Panel -->
+        <aside class="data-panel" id="dataPanel">
+            <div class="data-panel-header">
+                <div class="data-panel-title">Données</div>
+                <button class="data-panel-close" id="dataPanelClose">✕</button>
+            </div>
+            <div class="data-panel-content" id="dataPanelContent">
+                <div class="data-empty">Cliquez sur une bougie pour voir les détails</div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" onload="window.lightweightChartsLoaded = true;"></script>
+    <script src="indicator-renderer.js"></script>
+    <script src="indicators-ui.js"></script>
+    <script src="data-panel.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,427 @@
+/**
+ * Momentum Enricher
+ * RSI, MACD, Stochastic with HTF comparisons and divergence detection
+ */
+
+import { round } from '#utils/statisticalHelpers.js';
+
+export class MomentumEnricher {
+	constructor(options = {}) {
+		this.logger = options.logger || console;
+	}
+
+	/**
+	 * Enrich momentum indicators
+	 */
+	async enrich({ ohlcvData, indicatorService, symbol, timeframe, higherTimeframeData }) {
+		const closes = ohlcvData.bars.map(b => b.close);
+		const highs = ohlcvData.bars.map(b => b.high);
+		const lows = ohlcvData.bars.map(b => b.low);
+
+		// Get indicator series from IndicatorService
+		const rsiSeries = await this._getIndicatorSafe(indicatorService, symbol, 'rsi', timeframe);
+		const macdSeries = await this._getIndicatorSafe(indicatorService, symbol, 'macd', timeframe);
+		const stochSeries = await this._getIndicatorSafe(indicatorService, symbol, 'stochastic', timeframe);
+
+		return {
+			rsi: rsiSeries ? this._enrichRSI(rsiSeries, closes, higherTimeframeData) : null,
+			macd: macdSeries ? this._enrichMACD(macdSeries, closes, higherTimeframeData) : null,
+			stochastic: stochSeries ? this._enrichStochastic(stochSeries) : null,
+			roc: this._calculateROC(closes)
+		};
+	}
+
+	/**
+	 * Safely get indicator series
+	 */
+	async _getIndicatorSafe(indicatorService, symbol, indicator, timeframe) {
+		try {
+			const series = await indicatorService.getIndicatorTimeSeries({
+				symbol,
+				indicator,
+				timeframe,
+				bars: 200,
+				config: {}
+			});
+			return series;
+		} catch (error) {
+			this.logger.warn(`Failed to get ${indicator}: ${error.message}`);
+			return null;
+		}
+	}
+
+	/**
+	 * Enrich RSI
+	 */
+	_enrichRSI(rsiSeries, closes, higherTFData) {
+		const rsiValues = rsiSeries.data.map(d => d.value);
+		const currentRSI = rsiValues[rsiValues.length - 1];
+
+		// Calculate percentiles
+		const percentile20d = this._getPercentile(currentRSI, rsiValues.slice(-20));
+		const percentile50d = this._getPercentile(currentRSI, rsiValues.slice(-50));
+
+		// Calculate stats
+		const mean50d = this._mean(rsiValues.slice(-50));
+		const typical_range = this._getTypicalRange(rsiValues.slice(-50));
+
+		// Detect trend
+		const trend = this._detectTrend(rsiValues.slice(-10));
+
+		// Detect divergence with price
+		const divergence = this._detectRSIDivergence(rsiValues.slice(-20), closes.slice(-20));
+
+		// Compare with higher timeframe
+		let vs_htf = null;
+		if (higherTFData && higherTFData.rsi) {
+			const diff = currentRSI - higherTFData.rsi;
+			vs_htf = `${diff > 0 ? '+' : ''}${round(diff, 1)} points (${diff < -10 ? 'cooling from HTF' : diff > 10 ? 'heating vs HTF' : 'aligned with HTF'})`;
+		}
+
+		// Interpretation
+		let interpretation;
+		if (currentRSI > 70) 
+			interpretation = 'overbought (potential resistance)';
+		 else if (currentRSI > 65) 
+			interpretation = 'strong momentum, not yet overbought';
+		 else if (currentRSI > 50) 
+			interpretation = 'bullish momentum';
+		 else if (currentRSI > 35) 
+			interpretation = 'neutral to bearish momentum';
+		 else if (currentRSI > 30) 
+			interpretation = 'oversold zone but can extend';
+		 else 
+			interpretation = 'oversold (potential support)';
+
+		// Support level
+		let support_level = null;
+		if (currentRSI > 45 && currentRSI < 55) 
+			support_level = '50 (key level)';
+
+		// Historical context
+		let historical_context = null;
+		const avg70Plus = rsiValues.filter(v => v > 70).length;
+		if (currentRSI > 65 && avg70Plus > 5) 
+			historical_context = `RSI above 65 maintained during previous rallies (${avg70Plus} bars)`;
+
+		return {
+			value: round(currentRSI, 1),
+			percentile_20d: round(percentile20d, 2),
+			percentile_50d: round(percentile50d, 2),
+			vs_mean_50d: this._formatPercentage(currentRSI, mean50d),
+			typical_range_50d: typical_range.map(v => round(v, 0)),
+			interpretation,
+			trend: trend.direction,
+			divergence: divergence,
+			vs_htf,
+			support_level,
+			historical_context
+		};
+	}
+
+	/**
+	 * Enrich MACD
+	 */
+	_enrichMACD(macdSeries, closes, higherTFData) {
+		const macdData = macdSeries.data;
+		const current = macdData[macdData.length - 1];
+
+		if (!current || !current.values) return null;
+
+		const macd = current.values.macd;
+		const signal = current.values.macdSignal;
+		const histogram = current.values.macdHistogram;
+
+		// Histogram trend
+		const histogramValues = macdData.slice(-10).map(d => d.values?.macdHistogram).filter(Boolean);
+		const histogramTrend = this._analyzeHistogramTrend(histogramValues);
+
+		// Detect cross
+		const crossData = this._detectMACDCross(macdData);
+
+		// Interpretation
+		let interpretation;
+		if (macd > signal && histogram > 0) 
+			interpretation = histogram > histogramValues[histogramValues.length - 2] 
+				? 'strong bullish momentum (expanding)' 
+				: 'bullish momentum';
+		 else if (macd < signal && histogram < 0) 
+			interpretation = histogram < histogramValues[histogramValues.length - 2]
+				? 'strong bearish momentum (expanding)'
+				: 'bearish momentum';
+		 else 
+			interpretation = 'weak momentum (transition)';
+
+		// Divergence with price
+		const macdValues = macdData.slice(-20).map(d => d.values?.macd).filter(Boolean);
+		const divergence = this._detectMACDDivergence(macdValues, closes.slice(-20));
+
+		// Compare with HTF
+		let context = null;
+		if (higherTFData && higherTFData.macd) 
+			if (macd > 0 && higherTFData.macd > 0) 
+				context = 'aligned with HTF bullish momentum';
+			 else if (macd < 0 && higherTFData.macd < 0) 
+				context = 'aligned with HTF bearish momentum';
+			 else 
+				context = 'minor divergence vs HTF MACD';
+
+		return {
+			macd: round(macd, 2),
+			signal: round(signal, 2),
+			histogram: round(histogram, 2),
+			histogram_trend: histogramTrend,
+			cross: crossData,
+			interpretation,
+			histogram_vs_price: divergence,
+			context
+		};
+	}
+
+	/**
+	 * Enrich Stochastic
+	 */
+	_enrichStochastic(stochSeries) {
+		const stochData = stochSeries.data;
+		const current = stochData[stochData.length - 1];
+
+		if (!current || !current.values) return null;
+
+		const k = current.values.stochasticK;
+		const d = current.values.stochasticD;
+
+		// Interpretation
+		let interpretation;
+		if (k > 80) 
+			interpretation = 'overbought zone but can stay elevated in strong trends';
+		 else if (k > 70) 
+			interpretation = 'approaching overbought';
+		 else if (k < 20) 
+			interpretation = 'oversold zone';
+		 else if (k < 30) 
+			interpretation = 'approaching oversold';
+		 else 
+			interpretation = 'neutral zone';
+
+		// Cross
+		const cross = k > d ? 'k > d (bullish)' : 'k < d (bearish)';
+
+		// Context for trending markets
+		let context = null;
+		if (k > 70) 
+			context = 'can stay elevated in strong trends';
+		 else if (k < 30) 
+			context = 'typically bounces from 30 level in uptrends';
+
+		return {
+			k: round(k, 1),
+			d: round(d, 1),
+			interpretation,
+			cross,
+			context
+		};
+	}
+
+	/**
+	 * Calculate Rate of Change
+	 */
+	_calculateROC(closes) {
+		const current = closes[closes.length - 1];
+		
+		const roc5 = this._roc(current, closes[closes.length - 6]);
+		const roc10 = this._roc(current, closes[closes.length - 11]);
+
+		let interpretation;
+		if (roc5 > 2 && roc10 > 2) 
+			interpretation = 'strong upward momentum';
+		 else if (roc5 < -2 && roc10 < -2) 
+			interpretation = 'strong downward momentum';
+		 else if (roc5 > 0 && roc10 > 0) 
+			interpretation = 'upward momentum';
+		 else if (roc5 < 0 && roc10 < 0) 
+			interpretation = 'downward momentum';
+		 else 
+			interpretation = 'short-term pullback in larger trend';
+
+		return {
+			'5_period': this._formatPct(roc5),
+			'10_period': this._formatPct(roc10),
+			interpretation
+		};
+	}
+
+	/**
+	 * Calculate ROC
+	 */
+	_roc(current, past) {
+		if (!past || past === 0) return 0;
+		return ((current - past) / past) * 100;
+	}
+
+	/**
+	 * Detect trend in values
+	 */
+	_detectTrend(values) {
+		if (values.length < 3) return { direction: 'unknown' };
+		
+		const first = values[0];
+		const last = values[values.length - 1];
+		const slope = (last - first) / values.length;
+
+		if (slope > 0.5) return { direction: 'rising (bullish)' };
+		if (slope < -0.5) return { direction: 'declining (bearish)' };
+		return { direction: 'flat (range-bound)' };
+	}
+
+	/**
+	 * Detect RSI divergence with price
+	 */
+	_detectRSIDivergence(rsiValues, priceValues) {
+		if (rsiValues.length < 10 || priceValues.length < 10) 
+			return 'none';
+
+		// Find recent peaks
+		const rsiPeaks = this._findPeaks(rsiValues.slice(-10));
+		const pricePeaks = this._findPeaks(priceValues.slice(-10));
+
+		if (rsiPeaks.length >= 2 && pricePeaks.length >= 2) {
+			const rsiTrend = rsiPeaks[rsiPeaks.length - 1] - rsiPeaks[rsiPeaks.length - 2];
+			const priceTrend = pricePeaks[pricePeaks.length - 1] - pricePeaks[pricePeaks.length - 2];
+
+			if (rsiTrend < 0 && priceTrend > 0) 
+				return 'bearish divergence (price up, RSI down)';
+			 else if (rsiTrend > 0 && priceTrend < 0) 
+				return 'bullish divergence (price down, RSI up)';
+			
+		}
+
+		return 'none (price and RSI aligned)';
+	}
+
+	/**
+	 * Detect MACD divergence with price
+	 */
+	_detectMACDDivergence(macdValues, priceValues) {
+		if (macdValues.length < 10 || priceValues.length < 10) 
+			return 'aligned';
+
+		const macdTrend = macdValues[macdValues.length - 1] - macdValues[0];
+		const priceTrend = priceValues[priceValues.length - 1] - priceValues[0];
+
+		if (macdTrend < 0 && priceTrend > 0) 
+			return 'bearish divergence';
+		 else if (macdTrend > 0 && priceTrend < 0) 
+			return 'bullish divergence';
+
+		return 'aligned (no divergence)';
+	}
+
+	/**
+	 * Analyze histogram trend
+	 */
+	_analyzeHistogramTrend(histogramValues) {
+		if (histogramValues.length < 5) return 'insufficient data';
+		
+		const recent = histogramValues.slice(-5);
+		const increasing = recent.every((val, i) => i === 0 || val > recent[i - 1]);
+		const decreasing = recent.every((val, i) => i === 0 || val < recent[i - 1]);
+
+		if (increasing && recent[recent.length - 1] > 0) 
+			return 'expanding (momentum increasing)';
+		 else if (decreasing && recent[recent.length - 1] < 0) 
+			return 'declining (momentum weakening)';
+		 else if (increasing) 
+			return 'recovering';
+		 else if (decreasing) 
+			return 'weakening';
+
+		return 'stable';
+	}
+
+	/**
+	 * Detect MACD cross
+	 */
+	_detectMACDCross(macdData) {
+		if (macdData.length < 2) return 'insufficient data';
+		
+		const current = macdData[macdData.length - 1];
+		const previous = macdData[macdData.length - 2];
+
+		if (!current.values || !previous.values) return 'insufficient data';
+
+		const currentCross = current.values.macd > current.values.macdSignal;
+		const previousCross = previous.values.macd > previous.values.macdSignal;
+
+		// Find bars since cross
+		let barsSinceCross = 0;
+		for (let i = macdData.length - 2; i >= 0; i--) {
+			if (!macdData[i].values) break;
+			const wasCross = macdData[i].values.macd > macdData[i].values.macdSignal;
+			if (wasCross !== currentCross) break;
+			barsSinceCross++;
+		}
+
+		if (currentCross) 
+			return `bullish (macd > signal since ${barsSinceCross} bars)`;
+		 else 
+			return `bearish (macd < signal since ${barsSinceCross} bars)`;
+		
+	}
+
+	/**
+	 * Find peaks in array
+	 */
+	_findPeaks(values) {
+		const peaks = [];
+		for (let i = 1; i < values.length - 1; i++) 
+			if (values[i] > values[i - 1] && values[i] > values[i + 1]) 
+				peaks.push(values[i]);
+		
+		return peaks;
+	}
+
+	/**
+	 * Calculate percentile
+	 */
+	_getPercentile(value, distribution) {
+		const sorted = [...distribution].sort((a, b) => a - b);
+		const count = sorted.filter(v => v <= value).length;
+		return count / sorted.length;
+	}
+
+	/**
+	 * Calculate mean
+	 */
+	_mean(values) {
+		return values.reduce((a, b) => a + b, 0) / values.length;
+	}
+
+	/**
+	 * Get typical range (Q1-Q3)
+	 */
+	_getTypicalRange(values) {
+		const sorted = [...values].sort((a, b) => a - b);
+		const q1Index = Math.floor(sorted.length * 0.25);
+		const q3Index = Math.floor(sorted.length * 0.75);
+		return [sorted[q1Index], sorted[q3Index]];
+	}
+
+	/**
+	 * Format percentage
+	 */
+	_formatPercentage(value, reference) {
+		const pct = ((value - reference) / reference) * 100;
+		const sign = pct >= 0 ? '+' : '';
+		return `${sign}${round(pct, 1)}%`;
+	}
+
+	/**
+	 * Format percentage simple
+	 */
+	_formatPct(value) {
+		const sign = value >= 0 ? '+' : '';
+		return `${sign}${round(value, 2)}%`;
+	}
+}
+
+export default MomentumEnricher;
