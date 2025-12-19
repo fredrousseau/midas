@@ -135,7 +135,7 @@ export class McpService {
 	 * @param {...any} dependencies - Additional dependencies to pass to module registration
 	 * @returns {Promise<Object>} Registration results with statistics
 	 * @example
-	 * const results = await mcpService.registerAllModules(tradingService);
+	 * const results = await mcpService.registerAllModules();
 	 * console.log(`Registered ${results.totalTools} tools from ${results.modules.length} modules`);
 	 */
 	async registerAllModules(parameters) {

@@ -27,7 +27,7 @@ export class MarketAnalysisService {
 		if (!this.indicatorService) throw new Error('MarketAnalysisService requires an indicatorService instance in options');
 
 		// Regime detection service - detects market regimes
-		this.regimeDetection = new RegimeDetectionService({
+		this.regimeDetectionService = new RegimeDetectionService({
 			logger: this.logger,
 			dataProvider: this.dataProvider,
 			indicatorService: this.indicatorService
@@ -36,8 +36,8 @@ export class MarketAnalysisService {
 		// Statistical analysis service - generates technical indicators and statistical context
 		this.statisticalContext = new StatisticalContextService({
 			logger: this.logger,
-			ohlcvService: this.dataProvider,
-			tradingService: this,
+			dataProvider: this.dataProvider,
+			regimeDetectionService: this.regimeDetectionService,
 			indicatorService: this.indicatorService
 		});
 
@@ -57,7 +57,7 @@ export class MarketAnalysisService {
 	 * @returns {Promise<Object>} Market regime analysis
 	 */
 	async detectRegime(options) {
-		return await this.regimeDetection.detectRegime(options);
+		return await this.regimeDetectionService.detectRegime(options);
 	}
 
 	/**

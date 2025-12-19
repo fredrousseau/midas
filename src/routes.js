@@ -2,7 +2,7 @@
  * MCP & API Routes
  */
 
-import { asyncHandler, parseTradingParams, errorHandler } from './Utils/helpers.js';
+import { asyncHandler, parseTradingParams } from './Utils/helpers.js';
 import { getTimezone } from './Utils/timezone.js';
 import rateLimit from 'express-rate-limit';
 
@@ -62,7 +62,7 @@ export function registerRoutes(parameters) {
 	if (!marketDataService) throw new Error('registerTradingRoutes requires a marketDataService instance in options');
 
 	const marketAnalysisService = parameters.marketAnalysisService || null;
-	if (!marketAnalysisService) throw new Error('registerTradingRoutes requires a markerAnalysisService instance in options');
+	if (!marketAnalysisService) throw new Error('registerTradingRoutes requires a marketAnalysisService instance in options');
 
 	const logger = parameters.logger || null;
 	if (!logger) throw new Error('registerTradingRoutes requires a logger instance in options');
@@ -162,7 +162,7 @@ export function registerRoutes(parameters) {
 
 	app.get('/mcp/tools', (req, res) => {
 		logger.info('GET /mcp/tools - Returning registered tools');
-		return { tools: mcpService.getTools() };
+		res.json({ tools: mcpService.getTools() });
 	});
 
 	app.post('/mcp', async (req, res) => {
@@ -374,8 +374,8 @@ export function registerRoutes(parameters) {
 	app.delete(
 		'/api/v1/cache',
 		asyncHandler((req) => {
-			logger.info(`DELETE /api/v1/cache - Clearing cache for ${symbol || 'all'}:${timeframe || 'all'}`);
 			const { symbol, timeframe } = req.query;
+			logger.info(`DELETE /api/v1/cache - Clearing cache for ${symbol || 'all'}:${timeframe || 'all'}`);
 
 			const cleared = dataProvider.clearCache({ symbol, timeframe });
 

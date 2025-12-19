@@ -23,8 +23,8 @@ import {
 export class StatisticalContextService {
 	constructor(options = {}) {
 		this.logger = options.logger || console;
-		this.ohlcvService = options.ohlcvService;
-		this.tradingService = options.tradingService;
+		this.dataProvider = options.dataProvider;
+		this.regimeDetectionService = options.regimeDetectionService;
 		this.indicatorService = options.indicatorService;
 		
 		// Initialize enrichers
@@ -194,7 +194,7 @@ export class StatisticalContextService {
 	 */
 	async _generateTimeframeContext(symbol, timeframe, count, higherTFData) {
 		// Get OHLCV data
-		const ohlcvData = await this.ohlcvService.loadOHLCV({
+		const ohlcvData = await this.dataProvider.loadOHLCV({
 			symbol,
 			timeframe,
 			count: Math.max(count, 250), // Need extra for EMA200
@@ -210,7 +210,7 @@ export class StatisticalContextService {
 		const currentPrice = ohlcvData.bars[ohlcvData.bars.length - 1].close;
 
 		// Get regime data
-		const regimeData = await this.tradingService.detectRegime({
+		const regimeData = await this.regimeDetectionService.detectRegime({
 			symbol,
 			timeframe,
 			count: Math.min(count, 200)
@@ -469,7 +469,7 @@ export class StatisticalContextService {
 			if (!series || !series.data || series.data.length === 0) return null;
 
 			const current = series.data[series.data.length - 1];
-			const bars = await this.ohlcvService.loadOHLCV({ symbol, timeframe, count: 2 });
+			const bars = await this.dataProvider.loadOHLCV({ symbol, timeframe, count: 2 });
 
 			if (!bars || !bars.bars || bars.bars.length === 0) return null;
 

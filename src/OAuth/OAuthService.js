@@ -15,11 +15,12 @@ export class OAuthService {
 	 */
 	constructor(parameters) {
 		this.logger = parameters.logger || null;
-
 		if (!this.logger) throw new Error('OAuthService requires a logger instance in options');
 
+		this.JWT_SECRET = process.env.JWT_SECRET || null;
+		if (!this.JWT_SECRET) throw new Error('OAuthService requires JWT_SECRET to be set in environment variables');
+
 		this.storage = StorageService.getInstance();
-		this.JWT_SECRET = process.env.JWT_SECRET;
 
 		// Validation schemas
 		this.registerSchema = z.object({

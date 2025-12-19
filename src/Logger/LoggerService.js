@@ -1,4 +1,5 @@
 import winston from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 
 /**
  * Option to enable/disable masking (can be toggled via env or at runtime)
@@ -66,9 +67,23 @@ const logger = winston.createLogger({
 			),
 		}),
 
-		new winston.transports.File({
-			filename: 'logs/error.log',
+		// Error logs with daily rotation
+		new DailyRotateFile({
+			filename: 'logs/error-%DATE%.log',
+			datePattern: 'YYYY-MM-DD',
 			level: 'error',
+			maxSize: '20m',
+			maxFiles: '30d',
+			zippedArchive: true,
+		}),
+
+		// Combined logs with daily rotation
+		new DailyRotateFile({
+			filename: 'logs/combined-%DATE%.log',
+			datePattern: 'YYYY-MM-DD',
+			maxSize: '20m',
+			maxFiles: '14d',
+			zippedArchive: true,
 		}),
 	],
 });

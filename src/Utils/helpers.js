@@ -61,29 +61,6 @@ export function asyncHandler(handler) {
 }
 
 /**
- * Standard error handler middleware for trading routes
- * @param {Error} error - Error object
- * @param {Object} req - Express request
- * @param {Object} res - Express response
- * @param {Function} next - Next middleware
- */
-export function errorHandler(logger) {
-	return (error, req, res, next) => {
-		logger.error(`${req.method} ${req.path} - Error: ${error.message}`);
-		logger.error(`Stack: ${error.stack}`);
-
-		const statusCode = error.statusCode || 400;
-		const errorResponse = {
-			success: false,
-			error: error.name || 'Error',
-			message: error.message,
-		};
-
-		res.status(statusCode).json(errorResponse);
-	};
-}
-
-/**
  * Validate OHLC bar relationship
  * @param {Object} bar - OHLC bar
  * @returns {boolean}

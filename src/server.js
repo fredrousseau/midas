@@ -233,11 +233,6 @@ registerRoutes({
  */
 app.use(express.static('src/WebUI'));
 
-if (isSecuredServer) {
-	logger.info('WebUI static files served (server-side authentication enabled via HTTP-only cookies)');
-} else {
-	logger.warn('WebUI served WITHOUT authentication (SECURED_SERVER=false)');
-}
 
 /**
  * Global error handler middleware
