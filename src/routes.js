@@ -104,7 +104,6 @@ export function registerRoutes(parameters) {
 		middleware.push(rateLimiter);
 		middleware.push(route.handler);
 		app[route.method](route.path, ...middleware);
-		logger.info(`Registered WebUI auth route: ${route.method.toUpperCase()} ${route.path}`);
 	});
 
 	// ========== Apply auth middleware to all subsequent routes (only if server is secured) ==========
@@ -387,7 +386,7 @@ export function registerRoutes(parameters) {
 		})
 	);
 
-	logger.info('Oauth/MCP/API routes registered successfully');
+	logger.info('Oauth/MCP/API routes registered.');
 }
 
 export default registerRoutes;

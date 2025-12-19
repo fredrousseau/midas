@@ -98,7 +98,6 @@ export class McpService {
 		// Pass the ORIGINAL config to Mcp SDK - it expects Zod schemas, not JSON Schema
 		// The SDK will handle the conversion to JSON Schema internally
 		this.mcpServer.registerTool(name, config, callback);
-		this.logger.info(`Registered Tool - ${name}`);
 	}
 
 	/**

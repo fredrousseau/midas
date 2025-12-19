@@ -139,7 +139,7 @@ export class Indicator {
 
 		if (!this.dataProvider || typeof this.dataProvider.loadOHLCV !== 'function') throw new Error('Invalid dataProvider: must implement loadOHLCV()');
 
-		this.logger.info(`TradingIndicator initialized - Indicator precision: ${this.indicatorPrecision} decimal places`);
+		this.logger.info(`Indicator initialized - Indicator precision: ${this.indicatorPrecision} decimal places`);
 	}
 
 	async calculateIndicators({ symbol, indicators, bars = 200, calculationBars, timeframe }) {

@@ -35,7 +35,7 @@ export class StatisticalContextService {
 		this.priceActionEnricher = new PriceActionEnricher({ logger: this.logger });
 		this.patternDetector = new PatternDetector({ logger: this.logger });
 
-		this.logger.info('StatisticalContextService initialized - focuses on statistical analysis only');
+		this.logger.info('StatisticalContextService initialized.');
 	}
 
 	/**

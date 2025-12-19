@@ -53,7 +53,7 @@ export class RegimeDetectionService {
 		if (!this.indicatorService)
 			throw new Error('RegimeDetectionService requires an indicatorService instance in options');
 
-		this.logger.info('RegimeDetectionService initialized successfully');
+		this.logger.info('RegimeDetectionService initialized.');
 	}
 
 	/**

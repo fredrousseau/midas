@@ -17,7 +17,7 @@ export class TradingContextService {
 
 		if (!this.logger) throw new Error('TradingContextService requires a logger instance in options');
 
-		this.logger.info('TradingContextService initialized - focuses on trading decision generation');
+		this.logger.info('TradingContextService initialized .');
 	}
 
 	/**

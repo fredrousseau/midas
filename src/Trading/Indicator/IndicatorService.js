@@ -16,7 +16,7 @@ export class IndicatorService {
 			dataProvider: this.dataProvider,
 		});
 
-		this.logger.info('IndicatorService initialized successfully');
+		this.logger.info('IndicatorService initialized.');
 	}
 
 	/**

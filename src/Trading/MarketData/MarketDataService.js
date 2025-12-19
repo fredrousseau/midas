@@ -17,7 +17,7 @@ export class MarketDataService {
 		if (!this.dataProvider)
 			throw new Error('MarketDataService requires a dataProvider instance in options');
 
-		this.logger.info('MarketDataService initialized successfully');
+		this.logger.info('MarketDataService initialized.');
 	}
 
 	/**

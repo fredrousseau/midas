@@ -46,7 +46,7 @@ export class MarketAnalysisService {
 			logger: this.logger
 		});
 
-		this.logger.info('MarketAnalysisService initialized - orchestrates statistical and trading analysis');
+		this.logger.info('MarketAnalysisService initialized.');
 	}
 
 	// ========== PROXY METHODS FOR SUB-SERVICES ==========

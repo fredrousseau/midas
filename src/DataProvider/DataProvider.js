@@ -18,7 +18,7 @@ export class DataProvider {
 		this.cacheTTL = parameters.cacheTTL || 60000;
 		this.enableCache = parameters.enableCache !== false;
 		this.maxDataPoints = parameters.maxDataPoints || 5000;
-		this.logger.info('DataProvider initialized');
+		this.logger.info('DataProvider initialized.');
 	}
 
 	/**
