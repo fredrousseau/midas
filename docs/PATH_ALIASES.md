@@ -10,7 +10,7 @@ This project uses **Node.js subpath imports** (package.json `imports` field) to 
 | `#trading/*` | `./src/Trading/*` | Trading services and modules |
 | `#data/*` | `./src/Data/*` | Data providers and adapters |
 | `#logger` | `./src/Logger/LoggerService.js` | Logging service |
-| `#mcp/*` | `./src/Mcp/*` | MCP services |
+| `#mcp/*` | `./src/Mcp/*` | Mcp services |
 
 ## Examples
 

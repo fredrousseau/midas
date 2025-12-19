@@ -6,8 +6,8 @@ import rateLimit from 'express-rate-limit';
 
 import { logger } from './Logger/LoggerService.js';
 
-import { OAuthService } from './MCP/OAuthService.js';
-import { McpService } from './MCP/McpService.js';
+import { OAuthService } from './Mcp/OAuthService.js';
+import { McpService } from './Mcp/McpService.js';
 
 import { registerTradingRoutes } from './routes.js';
 import { hasKeys } from './Utils/helpers.js';
@@ -119,7 +119,7 @@ const mcpService = new McpService({
 	version: '1.0.0',
 });
 
-// Auto-register all MCP tool modules with tradingService dependency
+// Auto-register all Mcp tool modules with tradingService dependency
 await mcpService.registerAllModules({
 	mcpService: mcpService,
 	logger: logger,
@@ -164,13 +164,13 @@ function authMiddleware(req, res, next) {
 	next();
 }
 
-// MCP Tools List Endpoint - Return tools with properly formatted schemas
+// Mcp Tools List Endpoint - Return tools with properly formatted schemas
 app.get('/mcp/tools', (req, res) => {
 	logger.info('GET /mcp/tools - Returning registered tools');
 	res.json({ tools: mcpService.getTools() });
 });
 
-// MCP Server Handler - POST only (SSE support removed)
+// Mcp Server Handler - POST only (SSE support removed)
 app.post('/mcp', authMiddleware, async (req, res) => {
 	// Delegate handling to the McpService which manages transports and sessions
 	await mcpService.handleRequest(req, res);

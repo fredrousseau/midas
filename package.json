@@ -1,7 +1,7 @@
 {
   "name": "mcp-server",
   "version": "1.0.0",
-  "description": "Node.js MCP Server with HTTP Streaming Transport & OAuth",
+  "description": "Node.js Mcp Server with HTTP Streaming Transport & OAuth",
   "type": "module",
   "main": "src/server.js",
   "imports": {

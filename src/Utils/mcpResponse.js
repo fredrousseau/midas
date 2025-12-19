@@ -1,7 +1,7 @@
 /**
- * MCP Response Utilities - Simplified
+ * Mcp Response Utilities - Simplified
  *
- * Helpers to format responses according to JSON-RPC 2.0 for MCP protocol.
+ * Helpers to format responses according to JSON-RPC 2.0 for Mcp protocol.
  * Standard error codes:
  * -32602: Invalid params / -32601: Not found / -32603: Internal error
  */

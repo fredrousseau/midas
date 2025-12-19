@@ -1,7 +1,7 @@
 import mcpGetPrice from './mcpGetPrice.js';
 
 /**
- * Registers the MyFirstTool module with the MCP service.
+ * Registers the MyFirstTool module with the Mcp service.
  * This function initializes and registers all tools provided by the MyFirstTool module.
  *
  */
@@ -20,7 +20,7 @@ export async function register(parameters) {
 		// Build the tools
 		const tools = [mcpGetPrice({ provider: marketDataService, logger: logger })];
 
-		// Register each tool with MCP service
+		// Register each tool with Mcp service
 		for (const tool of tools) mcpService.registerTool(tool.name, tool.config, tool.handler);
 
 		return {

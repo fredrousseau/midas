@@ -9,14 +9,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * MCP (Model Context Protocol) service for managing tools and handling requests
+ * Mcp (Model Context Protocol) service for managing tools and handling requests
  */
 export class McpService {
 	/**
 	 * Create an McpService instance
 	 * @param {Object} parameters - Configuration parameters
 	 * @param {Object} parameters.logger - Logger instance
-	 * @param {string} [parameters.name='MCP Service'] - Service name
+	 * @param {string} [parameters.name='Mcp Service'] - Service name
 	 * @param {string} [parameters.version='1.0.0'] - Service version
 	 * @throws {Error} If logger is not provided
 	 */
@@ -25,7 +25,7 @@ export class McpService {
 
 		if (!this.logger) throw new Error('McpService requires a logger instance in parameters');
 
-		this.name = parameters.name || 'MCP Service';
+		this.name = parameters.name || 'Mcp Service';
 		this.version = parameters.version || '1.0.0';
 
 		this.mcpServer = new McpServer({
@@ -41,7 +41,7 @@ export class McpService {
 	}
 
 	/**
-	 * Handle incoming MCP requests
+	 * Handle incoming Mcp requests
 	 * @param {Object} req - Express request object
 	 * @param {Object} res - Express response object
 	 * @returns {Promise<void>}
@@ -69,7 +69,7 @@ export class McpService {
 	}
 
 	/**
-	 * Register a new tool with the MCP server
+	 * Register a new tool with the Mcp server
 	 * @param {string} name - Tool name
 	 * @param {Object} config - Tool configuration
 	 * @param {string} config.description - Tool description
@@ -95,7 +95,7 @@ export class McpService {
 		// Store the callback for direct execution via REST API
 		this.toolCallbacks.set(name, callback);
 
-		// Pass the ORIGINAL config to MCP SDK - it expects Zod schemas, not JSON Schema
+		// Pass the ORIGINAL config to Mcp SDK - it expects Zod schemas, not JSON Schema
 		// The SDK will handle the conversion to JSON Schema internally
 		this.mcpServer.registerTool(name, config, callback);
 		this.logger.info(`Registered Tool - ${name}`);
@@ -129,7 +129,7 @@ export class McpService {
 	}
 
 	/**
-	 * Discover and register all MCP tool modules from mcp-modules directory
+	 * Discover and register all Mcp tool modules from mcp-modules directory
 	 * Each module must export a register(mcpService, log, ...dependencies) function
 	 *
 	 * @param {...any} dependencies - Additional dependencies to pass to module registration
@@ -151,7 +151,7 @@ export class McpService {
 		if (!this.mcpService) throw new Error('registerAllModules requires mcpService instance in parameters');
 
 		try {
-			this.logger.info(`Auto-discovering MCP tool modules...`);
+			this.logger.info(`Auto-discovering Mcp tool modules...`);
 
 			// Discover all modules
 			const moduleNames = await this._discoverModules();
@@ -206,7 +206,7 @@ export class McpService {
 			const entries = await readdir(modulesDir, { withFileTypes: true });
 			return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 		} catch (error) {
-			throw new Error(`Failed to discover MCP tool modules: ${error.message}`);
+			throw new Error(`Failed to discover Mcp tool modules: ${error.message}`);
 		}
 	}
 

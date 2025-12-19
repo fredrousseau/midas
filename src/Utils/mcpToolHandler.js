@@ -1,6 +1,6 @@
 /**
  * Tool Handler Wrapper - Eliminates duplicate error handling in all tools
- * Wraps async handlers with standard try-catch and MCP response formatting
+ * Wraps async handlers with standard try-catch and Mcp response formatting
  */
 
 import { mcpSuccess, mcpError } from './mcpResponse.js';
