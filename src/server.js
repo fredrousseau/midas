@@ -1,15 +1,30 @@
+/**
+ * @fileoverview Midas Trading Platform Server
+ *
+ * This is the main entry point for the Midas trading platform server.
+ * It initializes and configures all core services including:
+ * - OAuth authentication
+ * - MCP (Model Context Protocol) service
+ * - Data providers (Binance)
+ * - Market data, indicators, and analysis services
+ * - Express server with CORS, logging, and routing
+ *
+ * @requires dotenv/config - Environment variables configuration
+ * @requires express - Web framework
+ * @requires cors - Cross-Origin Resource Sharing middleware
+ */
+
 // Environment is loaded via import 'dotenv/config' at file top so other modules see process.env
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 
 import { logger } from './Logger/LoggerService.js';
 
 import { OAuthService } from './Mcp/OAuthService.js';
 import { McpService } from './Mcp/McpService.js';
 
-import { registerTradingRoutes } from './routes.js';
+import { registerRoutes } from './routes.js';
 import { hasKeys } from './Utils/helpers.js';
 
 import { BinanceAdapter } from './DataProvider/BinanceAdapter.js';
@@ -19,44 +34,51 @@ import { MarketDataService } from './Trading/MarketData/MarketDataService.js';
 import { IndicatorService } from './Trading/Indicator/IndicatorService.js';
 import { MarketAnalysisService } from './Trading/MarketAnalysis/MarketAnalysisService.js';
 
-// Load server options from environment variables
+// ============================================================================
+// SERVER CONFIGURATION
+// ============================================================================
 
-// Evaluate security flag once at startup
-const SECURED = String(process.env.SECURED_SERVER || 'true').toLowerCase() === 'true';
+/**
+ * Security flag to enable/disable authentication on routes
+ * @type {boolean}
+ * @default true
+ * @env SECURED_SERVER - Set to 'false' to disable authentication
+ */
+const isSecuredServer = String(process.env.SECURED_SERVER || 'true').toLowerCase() === 'true';
 
+/**
+ * Express application instance
+ * @type {express.Application}
+ */
 const app = express();
 
-// Configure CORS with more restrictive settings
+// ============================================================================
+// MIDDLEWARE CONFIGURATION
+// ============================================================================
+
+/**
+ * CORS Configuration
+ * Allows cross-origin requests with credentials
+ * @env CORS_ORIGIN - Allowed origin for CORS (default: '*')
+ */
 app.use(
 	cors({
 		origin: process.env.CORS_ORIGIN || '*',
 		methods: ['GET', 'POST'],
 		allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
 		credentials: true,
-		maxAge: 86400,
+		maxAge: 86400, // 24 hours
 	})
 );
+
+// Body parsing middleware
 app.use(express.json()); // Parse application/json
 app.use(express.urlencoded({ extended: true })); // Parse application/x-www-form-urlencoded
 
-// Helper to create rate limiters with consistent logging
-function makeLimiter({ windowMs = 15 * 60 * 1000, max = 100 } = {}) {
-	return rateLimit({
-		windowMs,
-		max,
-		standardHeaders: true,
-		legacyHeaders: false,
-		handler: (req, res) => {
-			logger.info(`Rate limit exceeded for IP: ${req.ip} on ${req.path}`);
-			res.status(429).json({ error: 'too_many_requests' });
-		},
-	});
-}
-
-const oauthLimiter = makeLimiter({ max: 100 });
-const tokenLimiter = makeLimiter({ max: 20 });
-
-// HTTP Logger Middleware
+/**
+ * HTTP Request Logger Middleware
+ * Logs all incoming requests with method, path, status code, duration, body, and query params
+ */
 app.use((req, res, next) => {
 	const start = Date.now();
 
@@ -71,55 +93,91 @@ app.use((req, res, next) => {
 	next();
 });
 
-// Initialize OAuth service and register its routes on the express app
-const oauth = new OAuthService({ logger });
-const routes = oauth.getRoutes();
+// ============================================================================
+// SERVICE INITIALIZATION
+// ============================================================================
 
-routes.forEach((route) => {
-	const middleware = [];
-	if (route.path === '/oauth/token') middleware.push(tokenLimiter);
-	else if (route.path.startsWith('/oauth/')) middleware.push(oauthLimiter);
-	middleware.push(route.handler.bind(oauth));
-	app[route.method](route.path, ...middleware);
+/**
+ * OAuth Service
+ * Handles OAuth 2.0 authentication flow
+ * @type {OAuthService}
+ */
+const oauthService = new OAuthService({
+	logger: logger
 });
 
-// Initialize TradingService (core trading functionality)
-
+/**
+ * Binance Data Adapter
+ * Adapter for fetching data from Binance API
+ * @type {BinanceAdapter}
+ */
 const binanceAdapter = new BinanceAdapter({
 	logger: logger,
 	baseUrl: 'https://api.binance.com',
 });
 
+/**
+ * Data Provider Service
+ * Generic data provider with caching capabilities
+ * @type {DataProvider}
+ */
 const dataProvider = new DataProvider({
 	dataAdapter: binanceAdapter,
 	logger: logger,
 	enableCache: true,
-	cacheTTL: 60000,
+	cacheTTL: 60000, // 60 seconds
 });
 
+/**
+ * Market Data Service
+ * Provides access to market data (prices, candles, tickers, etc.)
+ * @type {MarketDataService}
+ */
 const marketDataService = new MarketDataService({
 	logger: logger,
 	dataProvider: dataProvider,
 });
 
+/**
+ * Indicator Service
+ * Calculates technical indicators (RSI, EMA, SMA, Bollinger Bands, etc.)
+ * @type {IndicatorService}
+ */
 const indicatorService = new IndicatorService({
 	logger: logger,
 	dataProvider: dataProvider,
 });
 
+/**
+ * Market Analysis Service
+ * Performs market analysis using indicators and market data
+ * @type {MarketAnalysisService}
+ */
 const marketAnalysisService = new MarketAnalysisService({
 	logger: logger,
 	dataProvider: dataProvider,
 	indicatorService: indicatorService,
 });
 
+/**
+ * MCP (Model Context Protocol) Service
+ * Manages MCP tools and resources for AI assistant integration
+ * @type {McpService}
+ */
 const mcpService = new McpService({
 	logger: logger,
-	name: 'fred',
+	name: 'fredR',
 	version: '1.0.0',
 });
 
-// Auto-register all Mcp tool modules with tradingService dependency
+// ============================================================================
+// MCP TOOL REGISTRATION
+// ============================================================================
+
+/**
+ * Auto-registers all MCP tool modules dynamically
+ * This scans for tool modules and registers them with the MCP service
+ */
 await mcpService.registerAllModules({
 	mcpService: mcpService,
 	logger: logger,
@@ -129,63 +187,62 @@ await mcpService.registerAllModules({
 	marketAnalysisService: marketAnalysisService,
 });
 
-registerTradingRoutes({
+// ============================================================================
+// ROUTES REGISTRATION
+// ============================================================================
+
+/**
+ * Register all routes
+ * Includes OAuth, MCP, market data, indicator, and analysis endpoints
+ */
+registerRoutes({
 	app: app,
+	oauthService: oauthService,
+	mcpService: mcpService,
 	logger: logger,
 	dataProvider: dataProvider,
 	marketDataService: marketDataService,
 	indicatorService: indicatorService,
 	markerAnalysisService: marketAnalysisService,
+	isSecuredServer: isSecuredServer
 });
 
-//	Handler - API health/status endpoint
-app.get('/api/status', (req, res) => {
-	res.status(200).json({ status: 'ok' });
-});
+// ============================================================================
+// STATIC FILES & ERROR HANDLERS
+// ============================================================================
 
-// Serve static files from public directory (for web UI)
-// This should be AFTER API routes so that API routes take precedence
+/**
+ * Serve static files for the Web UI
+ * Note: This is placed AFTER API routes so API routes take precedence
+ */
 app.use(express.static('src/WebUI'));
 
-// Auth Middleware - Verify JWT Token / If SECURED_SERVER is disabled, middleware will bypass authentication.
-function authMiddleware(req, res, next) {
-	if (!SECURED) return next();
-
-	const { authorization: authHeader } = req.headers;
-	if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing or invalid authorization header' });
-
-	const token = authHeader.slice(7).trim();
-	if (!token) return res.status(401).json({ error: 'Token cannot be empty' });
-
-	const validation = oauth.validateToken(token);
-	if (!validation.valid) return res.status(401).json({ error: 'Invalid or expired token' });
-
-	req.user = { id: validation.payload.sub, scope: validation.payload.scope };
-	next();
-}
-
-// Mcp Tools List Endpoint - Return tools with properly formatted schemas
-app.get('/mcp/tools', (req, res) => {
-	logger.info('GET /mcp/tools - Returning registered tools');
-	res.json({ tools: mcpService.getTools() });
-});
-
-// Mcp Server Handler - POST only (SSE support removed)
-app.post('/mcp', authMiddleware, async (req, res) => {
-	// Delegate handling to the McpService which manages transports and sessions
-	await mcpService.handleRequest(req, res);
-});
-
-// HTTP 404 Middleware (must be last) Catch-all for unknown routes
+/**
+ * 404 Error Handler
+ * Catch-all middleware for undefined routes (must be last)
+ */
 app.use((req, res) => {
 	res.status(404).json({ error: 'Route not found' });
 });
 
-// Start listening on the configured port
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
+
+/**
+ * HTTP server port
+ * @type {number}
+ * @env PORT - Server port (default: 3000)
+ */
 const PORT = process.env.PORT || 3000;
+
+/**
+ * Start the Express server
+ * Listens on the configured port and handles startup errors
+ */
 app
 	.listen(PORT, () => {
-		logger.info(`Server running on http://localhost:${PORT} - Log Level: ${logger.level} - Secured Mode : ${SECURED}`);
+		logger.info(`Server running on http://localhost:${PORT} - Log Level: ${logger.level} - Secured Mode : ${isSecuredServer}`);
 	})
 	.on('error', (err) => {
 		logger.error(`Server error: ${err.message}`);

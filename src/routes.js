@@ -21,11 +21,8 @@ function makeLimiter({ logger: logger, windowMs = 15 * 60 * 1000, max = 100 } = 
 }
 
 // Auth Middleware Factory - Returns a middleware that verifies JWT Token
-// If SECURED_SERVER is disabled, middleware will bypass authentication.
-function createAuthMiddleware(oauthService, isSecuredServer) {
+function createAuthMiddleware(oauthService) {
 	return function authMiddleware(req, res, next) {
-		if (!isSecuredServer) return next();
-
 		const { authorization: authHeader } = req.headers;
 		if (!authHeader || !authHeader.startsWith('Bearer ')) {
 			return res.status(401).json({ error: 'Missing or invalid authorization header' });
@@ -45,7 +42,7 @@ function createAuthMiddleware(oauthService, isSecuredServer) {
 }
 
 /**
- * Register all trading routes
+ * Register all routes
  * @param {Express} app - Express application
  * @param {Object} logger - Logger instance
  
@@ -79,7 +76,6 @@ export function registerRoutes(parameters) {
 	const isSecuredServer = parameters.isSecuredServer !== undefined ? parameters.isSecuredServer : true;
 
 	const rateLimiter = makeLimiter({ logger, max: 100 });
-	const authMiddleware = createAuthMiddleware(oauthService, isSecuredServer);
 
 	// ========== Channel : OAUTH / Type : Authentication ==========
 
@@ -90,24 +86,30 @@ export function registerRoutes(parameters) {
 		middleware.push(rateLimiter);
 		middleware.push(route.handler.bind(oauthService));
 		app[route.method](route.path, ...middleware);
-		app[route.method](route.path, ...middleware);
 		/*
 		if (route.path === '/oauth/token') middleware.push(tokenLimiter);
 		else if (route.path.startsWith('/oauth/')) middleware.push(oauthLimiter);
 		*/
 	});
 
+	// ========== Apply auth middleware to all subsequent routes (only if server is secured) ==========
+
+	if (isSecuredServer) {
+		const authMiddleware = createAuthMiddleware(oauthService);
+		app.use(authMiddleware);
+		logger.info('Authentication middleware enabled for all routes except OAuth');
+	} else {
+		logger.info('Authentication middleware disabled (SECURED_SERVER=false)');
+	}
+
 	// ========== Channel : MCP / Type : Inventory / Global Handlder ==========
 
-	// Mcp Tools List Endpoint - Return tools with properly formatted schemas
 	app.get('/mcp/tools', (req, res) => {
 		logger.info('GET /mcp/tools - Returning registered tools');
 		return { tools: mcpService.getTools() };
 	});
 
-	// Mcp Server Handler - POST only
-	app.post('/mcp', authMiddleware, async (req, res) => {
-		// Delegate handling to the McpService which manages transports and sessions
+	app.post('/mcp', async (req, res) => {
 		await mcpService.handleRequest(req, res);
 	});
 
@@ -120,6 +122,7 @@ export function registerRoutes(parameters) {
 			logger.info(`GET /api/v1/price/${symbol} - Fetching current price`);
 
 			const price = await marketDataService.getPrice(symbol);
+
 			return {
 				symbol,
 				timestamp: Date.now(),
@@ -131,8 +134,8 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/ohlcv',
 		asyncHandler(async (req) => {
-			logger.info('GET /api/v1/ohlcv - Fetching OHLCV');
 			const { symbol, timeframe, count, from, to } = parseTradingParams(req.query);
+			logger.info('GET /api/v1/ohlcv - Fetching OHLCV');
 
 			if (!symbol) {
 				const error = new Error('symbol is required');
@@ -151,6 +154,7 @@ export function registerRoutes(parameters) {
 			logger.info('GET /api/v1/pairs - Fetching available trading pairs');
 
 			const pairs = await marketDataService.getPairs({ quoteAsset, baseAsset, status });
+
 			return { count: pairs.length, pairs };
 		})
 	);
@@ -160,8 +164,9 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/catalog',
 		asyncHandler(async (req) => {
-			logger.info('GET /api/v1/catalog - Fetching trading indicator catalog');
 			const { category } = req.query;
+			logger.info('GET /api/v1/catalog - Fetching trading indicator catalog');
+
 			return indicatorService.getCatalog(category);
 		})
 	);
@@ -188,7 +193,6 @@ export function registerRoutes(parameters) {
 			const { indicator } = req.params;
 			const { symbol, config } = req.query;
 			const { timeframe, bars } = parseTradingParams(req.query);
-
 			logger.info(`GET /api/v1/indicators/${indicator} - Getting time series for ${symbol}`);
 
 			if (!symbol) {
@@ -212,8 +216,8 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/regime',
 		asyncHandler(async (req) => {
-			logger.info('GET /api/v1/regime - Detecting market regime');
 			const { symbol, timeframe, count } = parseTradingParams(req.query);
+			logger.info('GET /api/v1/regime - Detecting market regime');
 
 			if (!symbol) {
 				const error = new Error('symbol is required');
@@ -225,13 +229,13 @@ export function registerRoutes(parameters) {
 		})
 	);
 
-	// ========== Channel : API / Type : STATISTICAL CONTEXT (UNIFIED) ==========
+	// ========== Channel : API / Type : STATISTICAL CONTEXT ==========
 
 	app.get(
 		'/api/v1/context/enriched',
 		asyncHandler(async (req) => {
-			logger.info('GET /api/v1/context/enriched - Unified enriched context');
 			const { symbol, timeframes, count } = req.query;
+			logger.info('GET /api/v1/context/enriched - Unified enriched context');
 
 			if (!symbol) {
 				const error = new Error('symbol is required');
@@ -259,8 +263,8 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/context/mtf-quick',
 		asyncHandler(async (req) => {
-			logger.info('GET /api/v1/context/mtf-quick - Quick multi-timeframe check');
 			const { symbol, timeframes } = req.query;
+			logger.info('GET /api/v1/context/mtf-quick - Quick multi-timeframe check');
 
 			if (!symbol) {
 				const error = new Error('symbol is required');
@@ -294,7 +298,6 @@ export function registerRoutes(parameters) {
 		})
 	);
 
-	//	Handler - API health/status endpoint
 	app.get(
 		'/api/v1/status',
 		asyncHandler(() => {
@@ -315,9 +318,11 @@ export function registerRoutes(parameters) {
 	app.delete(
 		'/api/v1/cache',
 		asyncHandler((req) => {
-			const { symbol, timeframe } = req.query;
 			logger.info(`DELETE /api/v1/cache - Clearing cache for ${symbol || 'all'}:${timeframe || 'all'}`);
+			const { symbol, timeframe } = req.query;
+
 			const cleared = dataProvider.clearCache({ symbol, timeframe });
+
 			return {
 				success: true,
 				cleared,
@@ -326,10 +331,11 @@ export function registerRoutes(parameters) {
 		})
 	);
 
-	// Error handler middleware (must be last)
+	// ========== Error handler middleware (must be last) ==========
+
 	app.use('/api/v1', errorHandler(logger));
 
-	logger.info('Trading API routes registered successfully');
+	logger.info('Oauth/MCP/API routes registered successfully');
 }
 
 export default registerRoutes;
