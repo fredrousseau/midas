@@ -1,5 +1,6 @@
 import * as TS from 'trading-signals';
 import { IchimokuCloud } from './ichimoku.js';
+import { CustomPSAR } from './CustomPSAR.js';
 import { getIndicatorMetadata } from './registry.js';
 
 const DEFAULT_TIMEFRAME = '1h';
@@ -44,7 +45,7 @@ const INDICATOR_FACTORIES = {
 	// Trend
 	adx: (config) => new TS.ADX(config.period),
 	dx: (config) => new TS.DX(config.period),
-	psar: (config) => new TS.PSAR(config.step, config.max),
+	psar: (config) => new CustomPSAR(config.step, config.max),
 	tds: () => new TS.TDS(),
 	ichimoku: (config) => new IchimokuCloud(config),
 	// Volume

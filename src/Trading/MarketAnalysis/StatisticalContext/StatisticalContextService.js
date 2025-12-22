@@ -466,12 +466,13 @@ export class StatisticalContextService {
 	 */
 	async _getPSAR(symbol, timeframe) {
 		try {
+			// Use IndicatorService with custom PSAR implementation
 			const series = await this.indicatorService.getIndicatorTimeSeries({
 				symbol,
 				indicator: 'psar',
 				timeframe,
 				bars: 50,
-				config: {}
+				config: { step: 0.02, max: 0.2 }
 			});
 
 			if (!series || !series.data || series.data.length === 0) {
@@ -480,8 +481,9 @@ export class StatisticalContextService {
 			}
 
 			const current = series.data[series.data.length - 1];
+			const psarValue = current.value;
 
-			if (!current || (current.value === null || current.value === undefined)) {
+			if (psarValue === null || psarValue === undefined || isNaN(psarValue)) {
 				this.logger.warn(`PSAR: Invalid current value for ${symbol} ${timeframe}`);
 				return null;
 			}
@@ -495,7 +497,6 @@ export class StatisticalContextService {
 
 			const currentPrice = bars.bars[bars.bars.length - 1].close;
 
-			const psarValue = current.value;
 			const position = psarValue < currentPrice ? 'below price (bullish)' : 'above price (bearish)';
 			const distance = Math.abs(currentPrice - psarValue);
 
