@@ -211,14 +211,6 @@ export function registerRoutes(parameters) {
 		})
 	);
 
-	app.get(
-		'/api/v1/cache/stats',
-		asyncHandler(async () => {
-			logger.info('GET /api/v1/cache/stats - Fetching cache statistics');
-			return await dataProvider.getCacheStats();
-		})
-	);
-
 	app.delete(
 		'/api/v1/cache',
 		asyncHandler(async (req) => {
