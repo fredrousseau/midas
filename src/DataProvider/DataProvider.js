@@ -1,45 +1,62 @@
+import { CacheManager } from './CacheManager.js';
+import { RedisCacheAdapter } from './RedisCacheAdapter.js';
+
 /**
  * Data provider service for fetching and caching OHLCV market data
+ * Uses Redis-only cache with native TTL management
  */
 export class DataProvider {
 	/**
 	 * Create a DataProvider instance
 	 * @param {Object} parameters - Configuration parameters
-	 * @param {Object} parameters.dataAdapter - Data adapter for fetching market data
+	 * @param {Object} parameters.dataAdapter - Data adapter for fetching market data (e.g., BinanceAdapter)
 	 * @param {Object} parameters.logger - Logger instance
-	 * @param {number} [parameters.cacheTTL=60000] - Cache time-to-live in milliseconds
-	 * @param {boolean} [parameters.enableCache=true] - Enable caching
-	 * @param {number} [parameters.maxDataPoints=5000] - Maximum number of data points
+	 * @param {number} [parameters.maxDataPoints=5000] - Maximum number of data points per request
+	 * @param {Object} [parameters.redisConfig] - Redis configuration object
+	 * @param {boolean} [parameters.redisConfig.enabled=false] - Enable Redis cache (if false, all requests hit API)
+	 * @param {string} [parameters.redisConfig.host='localhost'] - Redis server host
+	 * @param {number} [parameters.redisConfig.port=6379] - Redis server port
+	 * @param {string} [parameters.redisConfig.password] - Redis authentication password (optional)
+	 * @param {number} [parameters.redisConfig.db=0] - Redis database number (0-15)
+	 * @param {number} [parameters.redisConfig.ttl=300] - Cache TTL in seconds (Redis native expiration)
+	 * @param {number} [parameters.redisConfig.maxBars=10000] - Max bars per symbol:timeframe (LRU eviction)
 	 */
 	constructor(parameters = {}) {
 		this.dataAdapter = parameters.dataAdapter;
 		this.logger = parameters.logger;
-		this.cache = new Map();
-		this.cacheTTL = parameters.cacheTTL || 60000;
-		this.enableCache = parameters.enableCache !== false;
 		this.maxDataPoints = parameters.maxDataPoints || 5000;
-		this.logger.info('DataProvider initialized.');
-	}
 
-	/**
-	 * Generate cache key from symbol and timeframe
-	 * @private
-	 * @param {string} symbol - Trading symbol
-	 * @param {string} timeframe - Timeframe
-	 * @returns {string} Cache key
-	 */
-	_getCacheKey(symbol, timeframe) {
-		return `${symbol}:${timeframe}`;
-	}
+		// Initialize Redis adapter (REQUIRED for cache)
+		if (!parameters.redisConfig?.enabled) {
+			this.logger.warn('Redis cache disabled - all requests will hit Binance API');
+			this.cacheManager = null;
+			return;
+		}
 
-	/**
-	 * Check if cache entry is still valid
-	 * @private
-	 * @param {number} timestamp - Cache entry timestamp
-	 * @returns {boolean} True if cache is valid
-	 */
-	_isCacheValid(timestamp) {
-		return Date.now() - timestamp < this.cacheTTL;
+		const redisAdapter = new RedisCacheAdapter({
+			logger: this.logger,
+			host: parameters.redisConfig.host,
+			port: parameters.redisConfig.port,
+			password: parameters.redisConfig.password,
+			db: parameters.redisConfig.db,
+		});
+
+		// Connect to Redis
+		redisAdapter.connect().catch((err) => {
+			this.logger.error('Failed to connect to Redis:', err.message);
+			this.cacheManager = null;
+		});
+
+		// CacheManager with Redis-only storage
+		const cacheTTL = (parameters.redisConfig.ttl || 300) * 1000; // Convert seconds to ms
+		this.cacheManager = new CacheManager({
+			logger: this.logger,
+			maxEntriesPerKey: parameters.redisConfig.maxBars || 10000,
+			ttl: cacheTTL,
+			redisAdapter: redisAdapter,
+		});
+
+		this.logger.info('DataProvider initialized with Redis-only cache');
 	}
 
 	/**
@@ -122,55 +139,81 @@ export class DataProvider {
 	 * @param {number} [options.count=200] - Number of bars to fetch
 	 * @param {number} [options.from] - Start timestamp
 	 * @param {number} [options.to] - End timestamp
+	 * @param {Date|string|number} [options.analysisDate] - Analysis date for backtesting (bars will end at this date)
 	 * @param {boolean} [options.useCache=true] - Use cached data if available
 	 * @param {boolean} [options.detectGaps=true] - Detect gaps in data
 	 * @returns {Promise<Object>} OHLCV data with metadata
 	 * @throws {Error} If symbol is missing or count is out of range
 	 */
 	async loadOHLCV(options = {}) {
-		const { symbol, timeframe = '1h', count = 200, from, to, useCache = true, detectGaps = true } = options;
+		const { symbol, timeframe = '1h', count = 200, from, to, analysisDate, useCache = true, detectGaps = true } = options;
 
 		if (!symbol) throw new Error('Symbol is required');
 		if (count < 1 || count > this.maxDataPoints) throw new Error(`Count must be between 1 and ${this.maxDataPoints}`);
 
+		// Parse analysisDate to timestamp
+		let analysisTimestamp = null;
+		if (analysisDate) {
+			if (analysisDate instanceof Date) analysisTimestamp = analysisDate.getTime();
+			else if (typeof analysisDate === 'string') analysisTimestamp = new Date(analysisDate).getTime();
+			else if (typeof analysisDate === 'number') analysisTimestamp = analysisDate;
+
+			if (isNaN(analysisTimestamp)) throw new Error(`Invalid analysisDate: ${analysisDate}`);
+		}
+
 		const startTime = Date.now();
-		const cacheKey = this._getCacheKey(symbol, timeframe);
 
-		// Check cache with intelligent bar count validation
-		if (useCache && this.enableCache && this.cache.has(cacheKey)) {
-			const cached = this.cache.get(cacheKey);
-			const cachedBarCount = cached.data?.bars?.length || 0;
+		// Try to get from CacheManager (Redis)
+		if (useCache && this.cacheManager) {
+			const cacheResult = await this.cacheManager.get(symbol, timeframe, count, analysisTimestamp);
 
-			// Cache is valid if:
-			// 1. Not expired (TTL check)
-			// 2. Has enough bars to satisfy the request
-			if (this._isCacheValid(cached.timestamp) && cachedBarCount >= count) {
-				this.logger.info(`Cache hit for ${symbol} (${timeframe}, ${count}/${cachedBarCount} bars)`);
+			if (cacheResult.coverage === 'full') {
+				// Full cache hit!
+				const duration = Date.now() - startTime;
+				this.logger.info(`Cache HIT (full) for ${symbol} (${timeframe}, ${count} bars)${analysisTimestamp ? ` until ${new Date(analysisTimestamp).toISOString()}` : ''}`);
 
-				// Return only the requested number of bars (most recent)
-				const trimmedBars = cached.data.bars.slice(-count);
 				return {
-					...cached.data,
-					bars: trimmedBars,
-					count: trimmedBars.length,
-					firstTimestamp: trimmedBars.at(0)?.timestamp ?? null,
-					lastTimestamp: trimmedBars.at(-1)?.timestamp ?? null,
+					symbol,
+					timeframe,
+					count: cacheResult.bars.length,
+					bars: cacheResult.bars,
+					firstTimestamp: cacheResult.bars.at(0)?.timestamp ?? null,
+					lastTimestamp: cacheResult.bars.at(-1)?.timestamp ?? null,
+					analysisDate: analysisTimestamp ? new Date(analysisTimestamp).toISOString() : null,
+					gaps: [],
+					gapCount: 0,
 					fromCache: true,
-					cachedBarCount,
+					loadDuration: duration,
+					loadedAt: new Date().toISOString(),
 				};
+			} else if (cacheResult.coverage === 'partial') {
+				// Partial hit - we have some bars, need to fetch missing ones
+				this.logger.info(`Cache HIT (partial) for ${symbol} (${timeframe}): have ${cacheResult.bars.length}/${count} bars, fetching missing data`);
+				// For now, treat as miss and fetch all data
+				// TODO: Implement smart partial fetch
 			}
-
-			// Cache exists but insufficient data or expired
-			if (this._isCacheValid(cached.timestamp) && cachedBarCount < count) 
-				this.logger.info(`Cache insufficient for ${symbol} (${timeframe}): has ${cachedBarCount} bars, need ${count}`);
-			
-			this.cache.delete(cacheKey);
 		}
 
 		try {
-			const rawData = await this.dataAdapter.fetchOHLC({ symbol, timeframe, count, from, to });
+			// If analysisDate is provided, use it as endTime (to) for Binance API
+			const endTime = analysisTimestamp || to;
+
+			const rawData = await this.dataAdapter.fetchOHLC({ symbol, timeframe, count, from, to: endTime });
 			this._validateOHLCVData(rawData);
-			const cleanedData = this._cleanOHLCVData(rawData);
+			let cleanedData = this._cleanOHLCVData(rawData);
+
+			// Filter by analysisDate if provided
+			if (analysisTimestamp) {
+				cleanedData = cleanedData.filter((bar) => bar.timestamp <= analysisTimestamp);
+
+				// If we don't have enough bars, throw an error
+				if (cleanedData.length < count)
+					throw new Error(`Insufficient historical data: only ${cleanedData.length} bars available before ${new Date(analysisTimestamp).toISOString()}, requested ${count}`);
+
+				// Take only the last 'count' bars
+				cleanedData = cleanedData.slice(-count);
+			}
+
 			const gaps = detectGaps ? this._detectGaps(cleanedData, timeframe) : [];
 			const duration = Date.now() - startTime;
 			const gapInfo = gaps.length > 0 ? ` (${gaps.length} gaps detected)` : '';
@@ -182,6 +225,7 @@ export class DataProvider {
 				bars: cleanedData, // Keep raw bars for internal use
 				firstTimestamp: cleanedData.at(0)?.timestamp ?? null,
 				lastTimestamp: cleanedData.at(-1)?.timestamp ?? null,
+				analysisDate: analysisTimestamp ? new Date(analysisTimestamp).toISOString() : null,
 				gaps,
 				gapCount: gaps.length,
 				fromCache: false,
@@ -189,18 +233,10 @@ export class DataProvider {
 				loadedAt: new Date().toISOString(),
 			};
 
-			// Smart caching: Always keep the maximum bars fetched for this symbol/timeframe
-			if (this.enableCache) {
-				const existing = this.cache.get(cacheKey);
-				const existingBarCount = existing?.data?.bars?.length || 0;
-
-				// Only update cache if we fetched more bars than what's already cached
-				if (cleanedData.length >= existingBarCount) {
-					this.cache.set(cacheKey, { data: response, timestamp: Date.now() });
-					this.logger.verbose(`Cache updated: ${symbol} (${timeframe}) with ${cleanedData.length} bars`);
-				} else {
-					this.logger.verbose(`Cache NOT updated: existing cache has more bars (${existingBarCount} > ${cleanedData.length})`);
-				}
+			// Store in CacheManager (Redis)
+			if (this.cacheManager) {
+				await this.cacheManager.set(symbol, timeframe, cleanedData);
+				this.logger.verbose(`Stored ${cleanedData.length} bars in Redis cache for ${symbol}:${timeframe}`);
 			}
 
 			this.logger.info(`Data Loaded : ${symbol} (${timeframe} / ${cleanedData.length}) bars in ${duration}ms${gapInfo}`);
@@ -219,31 +255,16 @@ export class DataProvider {
 	 * @param {string} [options.timeframe] - Timeframe to clear
 	 * @returns {number} Number of cache entries removed
 	 */
-	clearCache(options = {}) {
+	async clearCache(options = {}) {
 		const { symbol, timeframe } = options;
 
-		if (!symbol && !timeframe) {
-			const size = this.cache.size;
-			this.cache.clear();
-			this.logger.info(`Cache cleared (${size} items removed)`);
-			return size;
+		if (!this.cacheManager) {
+			this.logger.warn('Cache is disabled - nothing to clear');
+			return 0;
 		}
 
-		let cleared = 0;
-		if (timeframe) {
-			const cacheKey = this._getCacheKey(symbol, timeframe);
-			if (this.cache.has(cacheKey)) {
-				this.cache.delete(cacheKey);
-				cleared = 1;
-			}
-		} else {
-			this.cache.forEach((_, key) => {
-				if (key.startsWith(symbol + ':')) {
-					this.cache.delete(key);
-					cleared++;
-				}
-			});
-		}
+		// Clear CacheManager (Redis)
+		const cleared = await this.cacheManager.clear(symbol, timeframe);
 
 		this.logger.info(`Cache cleared (${cleared} items removed)`);
 		return cleared;
@@ -263,32 +284,28 @@ export class DataProvider {
 	 * @param {Object} options - Options for filtering pairs
 	 * @returns {Promise<Array>} List of available trading pairs
 	 */
-	getPairs(options){
+	getPairs(options) {
 		return this.dataAdapter.getPairs(options);
 	}
 	/**
 	 * Get cache statistics
 	 * @returns {Object} Cache statistics including size, TTL, and item details
 	 */
-	getCacheStats() {
-		const items = [];
-		for (const [key, value] of this.cache.entries()) {
-			const age = Date.now() - value.timestamp;
-			const isValid = this._isCacheValid(value.timestamp);
-			items.push({
-				key,
-				barCount: value.data?.bars?.length || 0,
-				age: Math.round(age / 1000), // seconds
-				isValid,
-				loadedAt: value.data?.loadedAt,
-			});
-		}
+	async getCacheStats() {
+		if (!this.cacheManager)
+			return {
+				version: 'v3-redis-only',
+				enabled: false,
+				message: 'Redis cache is disabled (set REDIS_ENABLED=true to enable)',
+			};
+
+		// Get stats from CacheManager (async because it queries Redis)
+		const cacheManagerStats = await this.cacheManager.getStats();
 
 		return {
-			enabled: this.enableCache,
-			ttl: this.cacheTTL / 1000, // convert to seconds
-			size: this.cache.size,
-			items,
+			enabled: true,
+			version: 'v3-redis-only',
+			cache: cacheManagerStats,
 		};
 	}
 }

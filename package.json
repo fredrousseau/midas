@@ -30,6 +30,7 @@
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",
     "lightweight-charts": "^5.0.9",
+    "redis": "^4.7.1",
     "technicalindicators": "^3.1.0",
     "trading-signals": "^7.1.0",
     "winston": "^3.18.3",

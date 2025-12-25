@@ -1,0 +1,450 @@
+/**
+ * Cache Manager for OHLCV data with continuous time-range based caching
+ *
+ * Design:
+ * - One continuous segment per symbol:timeframe
+ * - Indexed by timestamp for O(1) access
+ * - Automatic extension (prepend/append)
+ * - LRU eviction when memory limit reached
+ * - Redis-only storage (no memory duplication)
+ */
+
+export class CacheManager {
+	/**
+	 * @param {Object} options - Configuration options
+	 * @param {Object} options.logger - Logger instance
+	 * @param {number} [options.maxEntriesPerKey=5000] - Max bars per symbol:timeframe
+	 * @param {number} [options.ttl=300000] - Time to live in ms (5 minutes default)
+	 * @param {Object} options.redisAdapter - Redis adapter for storage (REQUIRED)
+	 */
+	constructor(options = {}) {
+		this.logger = options.logger;
+		this.maxEntriesPerKey = options.maxEntriesPerKey || 5000;
+		this.ttl = options.ttl || 300000; // 5 minutes
+		this.redisAdapter = options.redisAdapter;
+
+		if (!this.redisAdapter) throw new Error('CacheManager requires redisAdapter - cache is now Redis-only');
+
+		// Statistics (will be loaded from Redis if available)
+		this.stats = {
+			hits: 0,
+			misses: 0,
+			partialHits: 0,
+			extensions: 0,
+			evictions: 0,
+			merges: 0,
+		};
+
+		// Load persisted stats from Redis (async - non-blocking)
+		this._loadPersistedStats();
+
+		this.logger?.info('CacheManager initialized (Redis-only storage)', {
+			maxEntriesPerKey: this.maxEntriesPerKey,
+			ttl: this.ttl,
+		});
+	}
+
+	/**
+	 * Generate cache key
+	 * @private
+	 * @param {string} symbol - Trading symbol
+	 * @param {string} timeframe - Timeframe string
+	 * @returns {string} Cache key in format "symbol:timeframe"
+	 */
+	_getCacheKey(symbol, timeframe) {
+		return `${symbol}:${timeframe}`;
+	}
+
+	/**
+	 * Get bars from cache for a specific time range
+	 * Uses Redis native TTL for automatic expiration
+	 * @param {string} symbol - Trading symbol
+	 * @param {string} timeframe - Timeframe
+	 * @param {number} count - Number of bars requested
+	 * @param {number} [endTimestamp] - End timestamp (default: latest bar in cache)
+	 * @returns {Promise<Object>} Result object with coverage status:
+	 *   - coverage: 'full'|'partial'|'none'
+	 *   - bars: Array of matching bars
+	 *   - missing: Missing ranges (for partial/none coverage)
+	 */
+	async get(symbol, timeframe, count, endTimestamp = null) {
+		const key = this._getCacheKey(symbol, timeframe);
+
+		// Get segment from Redis (Redis TTL gère l'expiration automatiquement)
+		let segment = null;
+		try {
+			segment = await this.redisAdapter.get(key);
+		} catch (error) {
+			this.logger?.error(`Failed to get from Redis for ${key}:`, error.message);
+			await this._incrementStat('misses');
+			return { coverage: 'none', bars: [], missing: { count, endTimestamp } };
+		}
+
+		if (!segment) {
+			await this._incrementStat('misses');
+			return { coverage: 'none', bars: [], missing: { count, endTimestamp } };
+		}
+
+		// ✅ Redis gère le TTL - pas besoin de check manuel!
+		// La clé expire automatiquement après ttl secondes
+
+		// If no endTimestamp specified, use the latest bar in cache
+		const requestedEnd = endTimestamp || segment.end;
+
+		// Check if requested range is within cache bounds
+		const timeframeMs = this._parseTimeframe(timeframe);
+		const requestedStart = requestedEnd - (count - 1) * timeframeMs;
+
+		// Case 1: Requested range is completely outside cache
+		if (requestedEnd < segment.start || requestedStart > segment.end) {
+			await this._incrementStat('misses');
+			return { coverage: 'none', bars: [], missing: { count, endTimestamp: requestedEnd } };
+		}
+
+		// Case 2: Requested range is completely within cache
+		if (requestedStart >= segment.start && requestedEnd <= segment.end) {
+			const bars = this._extractBars(segment, requestedStart, requestedEnd, count);
+			if (bars.length === count) {
+				await this._incrementStat('hits');
+				return { coverage: 'full', bars };
+			}
+		}
+
+		// Case 3: Partial coverage
+		await this._incrementStat('partialHits');
+		const bars = this._extractBars(segment, Math.max(requestedStart, segment.start), Math.min(requestedEnd, segment.end), count);
+
+		// Calculate what's missing
+		const missing = {
+			before: requestedStart < segment.start ? { start: requestedStart, end: segment.start - timeframeMs } : null,
+			after: requestedEnd > segment.end ? { start: segment.end + timeframeMs, end: requestedEnd } : null,
+		};
+
+		return { coverage: 'partial', bars, missing };
+	}
+
+	/**
+	 * Store bars in cache
+	 * Creates new segment or merges with existing segment
+	 * Automatically sets Redis TTL for expiration
+	 * @param {string} symbol - Trading symbol
+	 * @param {string} timeframe - Timeframe
+	 * @param {Array<Object>} bars - Array of OHLCV bars with timestamps
+	 * @returns {Promise<void>}
+	 */
+	async set(symbol, timeframe, bars) {
+		if (!bars || bars.length === 0) return;
+
+		const key = this._getCacheKey(symbol, timeframe);
+
+		// Load existing segment from Redis
+		let existingSegment = null;
+		try {
+			existingSegment = await this.redisAdapter.get(key);
+		} catch (error) {
+			this.logger?.error(`Failed to load from Redis for ${key}:`, error.message);
+		}
+
+		// Sort bars by timestamp
+		const sortedBars = [...bars].sort((a, b) => a.timestamp - b.timestamp);
+		const newStart = sortedBars[0].timestamp;
+		const newEnd = sortedBars[sortedBars.length - 1].timestamp;
+
+		if (!existingSegment) {
+			// Create new segment
+			await this._createSegment(key, sortedBars);
+			this.logger?.verbose(`Cache created for ${key}: ${sortedBars.length} bars [${new Date(newStart).toISOString()} → ${new Date(newEnd).toISOString()}]`);
+			return;
+		}
+
+		// Merge with existing segment
+		await this._mergeSegment(key, existingSegment, sortedBars);
+	}
+
+	/**
+	 * Create a new cache segment
+	 * @private
+	 * @param {string} key - Cache key
+	 * @param {Array<Object>} bars - Sorted array of OHLCV bars
+	 * @returns {Promise<void>}
+	 */
+	async _createSegment(key, bars) {
+		const barsMap = new Map();
+		bars.forEach((bar) => barsMap.set(bar.timestamp, bar));
+
+		const segment = {
+			start: bars[0].timestamp,
+			end: bars[bars.length - 1].timestamp,
+			bars: barsMap,
+			count: bars.length,
+			createdAt: Date.now(),
+		};
+
+		// Save to Redis with TTL (Redis gère l'expiration automatiquement)
+		try {
+			await this.redisAdapter.set(key, segment, Math.floor(this.ttl / 1000));
+		} catch (error) {
+			this.logger?.error(`Failed to persist segment to Redis for ${key}:`, error.message);
+			throw error;
+		}
+	}
+
+	/**
+	 * Merge new bars with existing segment
+	 * Updates segment bounds and persists to Redis with renewed TTL
+	 * @private
+	 * @param {string} key - Cache key
+	 * @param {Object} segment - Existing cache segment
+	 * @param {Array<Object>} newBars - Sorted array of new OHLCV bars
+	 * @returns {Promise<void>}
+	 */
+	async _mergeSegment(key, segment, newBars) {
+		let merged = 0;
+		let extended = false;
+
+		newBars.forEach((bar) => {
+			if (!segment.bars.has(bar.timestamp)) {
+				segment.bars.set(bar.timestamp, bar);
+				merged++;
+
+				// Update start/end bounds
+				if (bar.timestamp < segment.start) {
+					segment.start = bar.timestamp;
+					extended = true;
+				}
+				if (bar.timestamp > segment.end) {
+					segment.end = bar.timestamp;
+					extended = true;
+				}
+			}
+		});
+
+		segment.count = segment.bars.size;
+
+		if (extended) await this._incrementStat('extensions');
+
+		if (merged > 0) {
+			await this._incrementStat('merges');
+			this.logger?.verbose(
+				`Cache merged for ${key}: added ${merged} bars [${new Date(segment.start).toISOString()} → ${new Date(segment.end).toISOString()}] (total: ${segment.count})`
+			);
+		}
+
+		// Evict old bars if exceeding limit
+		await this._evictOldBars(segment);
+
+		// Save updated segment to Redis (renouvelle le TTL automatiquement)
+		if (merged > 0)
+			try {
+				await this.redisAdapter.set(key, segment, Math.floor(this.ttl / 1000));
+			} catch (error) {
+				this.logger?.error(`Failed to persist merged segment to Redis for ${key}:`, error.message);
+				throw error;
+			}
+	}
+
+	/**
+	 * Extract bars from segment for a time range
+	 * @private
+	 * @param {Object} segment - Cache segment
+	 * @param {number} startTimestamp - Start timestamp
+	 * @param {number} endTimestamp - End timestamp
+	 * @param {number} maxCount - Maximum number of bars to return
+	 * @returns {Array<Object>} Array of bars in the specified range
+	 */
+	_extractBars(segment, startTimestamp, endTimestamp, maxCount) {
+		const bars = [];
+
+		// Get all timestamps in range
+		for (const [timestamp, bar] of segment.bars)
+			if (timestamp >= startTimestamp && timestamp <= endTimestamp) {
+				bars.push(bar);
+			}
+
+		// Sort by timestamp
+		bars.sort((a, b) => a.timestamp - b.timestamp);
+
+		// Return last 'maxCount' bars
+		return bars.slice(-maxCount);
+	}
+
+	/**
+	 * Evict oldest bars if segment exceeds max size
+	 * Implements LRU eviction strategy
+	 * @private
+	 * @param {Object} segment - Cache segment to evict from
+	 * @returns {Promise<void>}
+	 */
+	async _evictOldBars(segment) {
+		if (segment.count <= this.maxEntriesPerKey) return;
+
+		// Sort timestamps
+		const timestamps = Array.from(segment.bars.keys()).sort((a, b) => a - b);
+
+		// Remove oldest bars
+		const toRemove = segment.count - this.maxEntriesPerKey;
+		for (let i = 0; i < toRemove; i++) segment.bars.delete(timestamps[i]);
+
+		// Update segment bounds
+		segment.start = timestamps[toRemove];
+		segment.count = segment.bars.size;
+		await this._incrementStat('evictions', toRemove);
+
+		this.logger?.verbose(`Evicted ${toRemove} old bars from segment (now: ${segment.count} bars)`);
+	}
+
+	/**
+	 * Parse timeframe string to milliseconds
+	 * @private
+	 * @param {string} timeframe - Timeframe string (e.g., '1h', '5m', '1d')
+	 * @returns {number} Timeframe duration in milliseconds
+	 */
+	_parseTimeframe(timeframe) {
+		const units = { m: 60000, h: 3600000, d: 86400000, w: 604800000, M: 2592000000 };
+		const match = timeframe.match(/^(\d+)([mhdwM])$/);
+		if (!match) return 3600000; // Default to 1h
+		return parseInt(match[1]) * (units[match[2]] || 3600000);
+	}
+
+	/**
+	 * Load persisted statistics from Redis
+	 * Validates stats freshness using lastActivity timestamp
+	 * Resets stats if they are older than TTL (obsolete)
+	 * @private
+	 * @returns {Promise<void>}
+	 */
+	async _loadPersistedStats() {
+		try {
+			const result = await this.redisAdapter.loadStats();
+			if (!result) {
+				this.logger?.info('No persisted stats found in Redis - starting fresh');
+				return;
+			}
+
+			const { stats: persistedStats, lastActivity } = result;
+
+			// Validate stats freshness: check if lastActivity is within TTL window
+			const timeSinceLastActivity = Date.now() - lastActivity;
+			const ttlMs = this.ttl;
+
+			if (timeSinceLastActivity > ttlMs) {
+				// Stats are obsolete (older than TTL) - cache segments have expired
+				this.logger?.warn(`Cache statistics are obsolete (${Math.round(timeSinceLastActivity / 1000)}s old, TTL=${Math.round(ttlMs / 1000)}s) - resetting to zero`);
+				// Keep stats at initial values (all zeros)
+				return;
+			}
+
+			// Stats are fresh - restore them
+			this.stats = { ...this.stats, ...persistedStats };
+			this.logger?.info('Cache statistics restored from Redis', {
+				...this.stats,
+				lastActivity: new Date(lastActivity).toISOString(),
+				ageSeconds: Math.round(timeSinceLastActivity / 1000),
+			});
+		} catch (error) {
+			this.logger?.error('Failed to load persisted stats:', error.message);
+		}
+	}
+
+	/**
+	 * Increment a stat counter and persist to Redis
+	 * Uses fire-and-forget pattern for non-blocking saves
+	 * @private
+	 * @param {string} statName - Name of the stat to increment (hits, misses, etc.)
+	 * @param {number} [amount=1] - Amount to increment by
+	 * @returns {Promise<void>}
+	 */
+	async _incrementStat(statName, amount = 1) {
+		this.stats[statName] += amount;
+
+		// Save stats to Redis (fire-and-forget, non-blocking)
+		this.redisAdapter.saveStats(this.stats).catch((err) => {
+			this.logger?.error('Failed to save stats:', err.message);
+		});
+	}
+
+	/**
+	 * Clear cache entries from Redis
+	 * @param {string} [symbol] - Optional symbol to clear (clears all if omitted)
+	 * @param {string} [timeframe] - Optional timeframe to clear
+	 * @returns {Promise<number>} Number of entries cleared
+	 */
+	async clear(symbol = null, timeframe = null) {
+		try {
+			if (!symbol) {
+				// Clear all Redis cache
+				const keys = await this.redisAdapter.keys();
+				await this.redisAdapter.clear();
+				this.logger?.info(`Redis cache cleared: ${keys.length} entries removed`);
+				return keys.length;
+			}
+
+			// Clear specific key
+			const key = this._getCacheKey(symbol, timeframe);
+			await this.redisAdapter.delete(key);
+			this.logger?.info(`Cache cleared for ${key}`);
+			return 1;
+		} catch (error) {
+			this.logger?.error(`Failed to clear cache:`, error.message);
+			return 0;
+		}
+	}
+
+	/**
+	 * Get cache statistics from Redis
+	 * Includes hit/miss rates, segment details, and TTL remaining for each entry
+	 * @returns {Promise<Object>} Statistics object with entries, totalBars, stats, and config
+	 */
+	async getStats() {
+		const entries = [];
+		let totalBars = 0;
+
+		// Get all keys from Redis
+		try {
+			const keys = await this.redisAdapter.keys();
+
+			// Load each segment to get stats (+ TTL restant)
+			for (const key of keys) {
+				// Skip stats key (not a cache segment)
+				if (key === '_stats') continue;
+
+				const segment = await this.redisAdapter.get(key);
+				const ttlRemaining = await this.redisAdapter.getTTL(key);
+
+				if (segment) {
+					totalBars += segment.count;
+					entries.push({
+						key,
+						count: segment.count,
+						start: new Date(segment.start).toISOString(),
+						end: new Date(segment.end).toISOString(),
+						age: Math.round((Date.now() - segment.createdAt) / 1000),
+						ttlRemaining: ttlRemaining > 0 ? ttlRemaining : 0, // Secondes restantes avant expiration
+					});
+				}
+			}
+		} catch (error) {
+			this.logger?.error('Failed to get cache stats from Redis:', error.message);
+		}
+
+		const totalRequests = this.stats.hits + this.stats.misses + this.stats.partialHits;
+		const hitRate = totalRequests > 0 ? ((this.stats.hits / totalRequests) * 100).toFixed(2) : '0.00';
+
+		return {
+			entries: entries.length,
+			totalBars,
+			stats: {
+				...this.stats,
+				totalRequests,
+				hitRate: `${hitRate}%`,
+			},
+			config: {
+				maxEntriesPerKey: this.maxEntriesPerKey,
+				ttl: `${this.ttl / 1000}s (${this.ttl / 60000}min)`,
+				storage: 'Redis',
+				ttlManagement: 'Redis native TTL',
+			},
+			entries: entries,
+		};
+	}
+}

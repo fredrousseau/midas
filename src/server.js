@@ -140,6 +140,20 @@ const binanceAdapter = new BinanceAdapter({
 });
 
 /**
+ * Redis Configuration
+ * Parse Redis settings from environment variables
+ */
+const redisConfig = {
+	enabled: String(process.env.REDIS_ENABLED || 'false').toLowerCase() === 'true',
+	host: process.env.REDIS_HOST || 'localhost',
+	port: parseInt(process.env.REDIS_PORT || '6379'),
+	password: process.env.REDIS_PASSWORD || undefined,
+	db: parseInt(process.env.REDIS_DB || '0'),
+	ttl: parseInt(process.env.REDIS_CACHE_TTL || '300'), // TTL in seconds
+	maxBars: parseInt(process.env.REDIS_MAX_BARS_PER_KEY || '10000'), // Max bars per symbol:timeframe
+};
+
+/**
  * Data Provider Service
  * Generic data provider with caching capabilities
  * @type {DataProvider}
@@ -147,8 +161,7 @@ const binanceAdapter = new BinanceAdapter({
 const dataProvider = new DataProvider({
 	dataAdapter: binanceAdapter,
 	logger: logger,
-	enableCache: true,
-	cacheTTL: 60000, // 60 seconds
+	redisConfig: redisConfig,
 });
 
 /**
