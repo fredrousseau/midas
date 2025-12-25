@@ -151,31 +151,62 @@ function initCharts() {
 
     // Synchronize time scales between main chart and indicator chart
     // Use flags to prevent infinite loops
-    let syncingFromMain = false;
-    let syncingFromIndicator = false;
+    let syncingTimeScale = false;
+
+    const syncTimeScale = (sourceChart, targetChart, timeRange) => {
+        if (!timeRange || syncingTimeScale) return;
+
+        syncingTimeScale = true;
+        try {
+            targetChart.timeScale().setVisibleRange(timeRange);
+        } catch (e) {
+            // Ignore errors when chart has no data yet
+            console.debug('Time scale sync error (normal if chart empty):', e.message);
+        } finally {
+            // Use setTimeout to ensure flag is reset after the event propagates
+            setTimeout(() => { syncingTimeScale = false; }, 0);
+        }
+    };
 
     mainChart.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !syncingFromIndicator) {
-            syncingFromMain = true;
-            try {
-                indicatorChart.timeScale().setVisibleRange(timeRange);
-            } catch (e) {
-                // Ignore errors when indicator chart has no data yet
-            }
-            syncingFromMain = false;
-        }
+        syncTimeScale(mainChart, indicatorChart, timeRange);
     });
 
     indicatorChart.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !syncingFromMain) {
-            syncingFromIndicator = true;
-            try {
-                mainChart.timeScale().setVisibleRange(timeRange);
-            } catch (e) {
-                // Ignore errors when main chart has no data yet
+        syncTimeScale(indicatorChart, mainChart, timeRange);
+    });
+
+    // Synchronize crosshair position between charts
+    let syncingCrosshair = false;
+
+    const syncCrosshair = (sourceChart, targetChart, param) => {
+        if (syncingCrosshair) return;
+
+        syncingCrosshair = true;
+        try {
+            if (param && param.point) {
+                // Convert the point to time on the target chart
+                const time = param.time;
+                if (time) {
+                    targetChart.setCrosshairPosition(param.point.y, time, param.seriesData ? param.seriesData.values().next().value : null);
+                }
+            } else {
+                // Clear crosshair on target chart
+                targetChart.clearCrosshairPosition();
             }
-            syncingFromIndicator = false;
+        } catch (e) {
+            console.debug('Crosshair sync error:', e.message);
+        } finally {
+            setTimeout(() => { syncingCrosshair = false; }, 0);
         }
+    };
+
+    mainChart.subscribeCrosshairMove((param) => {
+        syncCrosshair(mainChart, indicatorChart, param);
+    });
+
+    indicatorChart.subscribeCrosshairMove((param) => {
+        syncCrosshair(indicatorChart, mainChart, param);
     });
 
     // Handle window resize
@@ -263,8 +294,12 @@ async function fetchCatalog() {
     return result.data || result;
 }
 
-async function fetchOHLCV(symbol, timeframe, bars) {
-    const response = await authenticatedFetch(`${API_BASE}/api/v1/ohlcv?symbol=${symbol}&timeframe=${timeframe}&count=${bars}`);
+async function fetchOHLCV(symbol, timeframe, bars, analysisDate = null) {
+    let url = `${API_BASE}/api/v1/ohlcv?symbol=${symbol}&timeframe=${timeframe}&count=${bars}`;
+    if (analysisDate) {
+        url += `&analysisDate=${encodeURIComponent(analysisDate)}`;
+    }
+    const response = await authenticatedFetch(url);
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to fetch OHLCV data');
@@ -274,9 +309,13 @@ async function fetchOHLCV(symbol, timeframe, bars) {
     return result.data || result;
 }
 
-async function fetchIndicator(symbol, indicator, timeframe, bars, config = {}) {
+async function fetchIndicator(symbol, indicator, timeframe, bars, config = {}, analysisDate = null) {
     const configParam = encodeURIComponent(JSON.stringify(config));
-    const response = await authenticatedFetch(`${API_BASE}/api/v1/indicators/${indicator}?symbol=${symbol}&timeframe=${timeframe}&bars=${bars}&config=${configParam}`);
+    let url = `${API_BASE}/api/v1/indicators/${indicator}?symbol=${symbol}&timeframe=${timeframe}&bars=${bars}&config=${configParam}`;
+    if (analysisDate) {
+        url += `&analysisDate=${encodeURIComponent(analysisDate)}`;
+    }
+    const response = await authenticatedFetch(url);
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || `Failed to fetch ${indicator} indicator`);
@@ -537,8 +576,8 @@ const OSCILLATOR_INDICATORS = [
     'ao', 'ac', 'cg', 'rei', 'tr', 'tds',
 ];
 
-async function addIndicator(name, symbol, timeframe, bars) {
-    if (!currentData) 
+async function addIndicator(name, symbol, timeframe, bars, analysisDate = null) {
+    if (!currentData)
         throw new Error('OHLCV data not loaded');
 
     const config = INDICATOR_CONFIGS[name] || {};
@@ -546,13 +585,13 @@ async function addIndicator(name, symbol, timeframe, bars) {
     const isOscillator = OSCILLATOR_INDICATORS.includes(name);
 
     try {
-        const data = await fetchIndicator(symbol, name, timeframe, bars, config);
+        const data = await fetchIndicator(symbol, name, timeframe, bars, config, analysisDate);
         const series = transformIndicatorToSeries(data, currentData);
 
-        if (isOverlay) 
+        if (isOverlay)
             addOverlayIndicator(name, series);
 
-        if (isOscillator) 
+        if (isOscillator)
             addOscillatorIndicator(name, series);
 
         console.log(`Indicator ${name} added successfully`);
@@ -574,6 +613,13 @@ async function loadData() {
     const symbol = document.getElementById('symbol').value.trim().toUpperCase();
     const timeframe = document.getElementById('timeframe').value;
     const bars = parseInt(document.getElementById('bars').value);
+    const analysisDateInput = document.getElementById('analysisDate').value;
+
+    // Convert datetime-local to ISO string if provided
+    let analysisDate = null;
+    if (analysisDateInput) {
+        analysisDate = new Date(analysisDateInput).toISOString();
+    }
 
     if (!symbol) {
         showStatus('Veuillez entrer un symbole', 'error');
@@ -583,18 +629,42 @@ async function loadData() {
 
     const loadBtn = document.getElementById('loadBtn');
     loadBtn.disabled = true;
-    showStatus('Chargement des données OHLCV...', 'loading');
+
+    const statusMessage = analysisDate
+        ? `Chargement des données OHLCV (backtesting au ${new Date(analysisDate).toLocaleString()})...`
+        : 'Chargement des données OHLCV...';
+    showStatus(statusMessage, 'loading');
 
     try {
         // Load OHLCV data
-        const ohlcvData = await fetchOHLCV(symbol, timeframe, bars);
+        const ohlcvData = await fetchOHLCV(symbol, timeframe, bars, analysisDate);
         currentData = ohlcvData;
 
         // Update main chart
         updateMainChart(ohlcvData);
 
-        // Update chart title
-        document.getElementById('chartTitle').textContent = `${symbol} - ${timeframe}`;
+        // Update chart title with backtesting info
+        let chartTitle = `${symbol} - ${timeframe}`;
+        if (analysisDate) {
+            chartTitle += ` (Backtesting: ${new Date(analysisDate).toLocaleDateString()})`;
+        }
+        document.getElementById('chartTitle').textContent = chartTitle;
+
+        // Show/hide backtesting banner
+        const backtestingInfo = document.getElementById('backtestingInfo');
+        const backtestingDate = document.getElementById('backtestingDate');
+        if (analysisDate) {
+            backtestingDate.textContent = new Date(analysisDate).toLocaleString('fr-FR', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            backtestingInfo.style.display = 'block';
+        } else {
+            backtestingInfo.style.display = 'none';
+        }
 
         showStatus('Données chargées avec succès', 'success');
         setTimeout(hideStatus, 2000);
@@ -609,8 +679,8 @@ async function loadData() {
         if (selectedIndicators.length > 0) {
             showStatus(`Chargement de ${selectedIndicators.length} indicateur(s)...`, 'loading');
 
-            for (const indicator of selectedIndicators) 
-                await addIndicator(indicator, symbol, timeframe, bars);
+            for (const indicator of selectedIndicators)
+                await addIndicator(indicator, symbol, timeframe, bars, analysisDate);
 
             showStatus('Tous les indicateurs ont été chargés', 'success');
             setTimeout(hideStatus, 2000);
@@ -626,6 +696,14 @@ async function loadData() {
 
 // Event listeners
 document.getElementById('loadBtn').addEventListener('click', loadData);
+
+// Clear date button handler
+document.getElementById('clearDateBtn').addEventListener('click', () => {
+    document.getElementById('analysisDate').value = '';
+    document.getElementById('backtestingInfo').style.display = 'none';
+    // Automatically reload data in real-time mode
+    loadData();
+});
 
 // Handle indicator checkbox changes
 document.querySelectorAll('#indicatorList input').forEach(checkbox => {

@@ -741,6 +741,66 @@
             background: #01579b;
             color: #81d4fa;
         }
+
+        /* Backtesting indicator */
+        .backtesting-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 10px;
+            box-shadow: 0 2px 4px rgba(255, 107, 53, 0.3);
+        }
+
+        .backtesting-info {
+            display: none;
+            background: linear-gradient(135deg, rgba(255, 107, 53, 0.2) 0%, rgba(247, 147, 30, 0.2) 100%);
+            border: 1px solid #ff6b35;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin: 15px 30px;
+            text-align: center;
+            font-size: 12px;
+            color: #ffb380;
+        }
+
+        .backtesting-info.active {
+            display: block;
+        }
+
+        .clear-date-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #999;
+            padding: 8px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            position: absolute;
+            right: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .clear-date-btn:hover {
+            border-color: #ef5350;
+            color: #ef5350;
+            background: rgba(239, 83, 80, 0.1);
+        }
+
+        .control-group.with-clear {
+            position: relative;
+        }
+
+        .control-group.with-clear input {
+            padding-right: 35px;
+        }
     </style>
 </head>
 <body>
@@ -796,6 +856,12 @@
         <main class="main-content">
             <div id="status" class="status"></div>
 
+            <!-- Backtesting Info Banner -->
+            <div class="backtesting-info" id="backtestingInfo" style="display: none;">
+                <strong>MODE BACKTESTING</strong> - Vous visualisez des données historiques au <span id="backtestingDate"></span>
+                <button class="clear-date-btn" id="clearDateBtn" style="position: relative; transform: none; margin-left: 15px;">Retour au temps réel</button>
+            </div>
+
             <div class="controls">
                 <div class="control-group">
                     <label for="symbol">Symbol</label>
@@ -817,6 +883,11 @@
                 <div class="control-group">
                     <label for="bars">Nombre de barres</label>
                     <input type="number" id="bars" value="200" min="50" max="1000">
+                </div>
+
+                <div class="control-group">
+                    <label for="analysisDate">Date d'analyse (backtesting)</label>
+                    <input type="datetime-local" id="analysisDate" placeholder="Laisser vide pour temps réel">
                 </div>
 
                 <div class="control-group">
