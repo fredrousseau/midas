@@ -170,7 +170,7 @@ export class DataProvider {
 			if (cacheResult.coverage === 'full') {
 				// Full cache hit!
 				const duration = Date.now() - startTime;
-				this.logger.info(`Cache HIT (full) for ${symbol} (${timeframe}, ${count} bars)${analysisTimestamp ? ` until ${new Date(analysisTimestamp).toISOString()}` : ''}`);
+				this.logger.verbose(`Cache HIT (full) for ${symbol} (${timeframe}, ${count} bars)${analysisTimestamp ? ` until ${new Date(analysisTimestamp).toISOString()}` : ''}`);
 
 				return {
 					symbol,
