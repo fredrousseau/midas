@@ -42,16 +42,13 @@ export const config = {
 export class RegimeDetectionService {
 	constructor(parameters = {}) {
 		this.logger = parameters.logger || null;
-		if (!this.logger)
-			throw new Error('RegimeDetectionService requires a logger instance in options');
+		if (!this.logger) throw new Error('RegimeDetectionService requires a logger instance in options');
 
 		this.dataProvider = parameters.dataProvider || null;
-		if (!this.dataProvider)
-			throw new Error('RegimeDetectionService requires a dataProvider instance in options');
+		if (!this.dataProvider) throw new Error('RegimeDetectionService requires a dataProvider instance in options');
 
 		this.indicatorService = parameters.indicatorService || null;
-		if (!this.indicatorService)
-			throw new Error('RegimeDetectionService requires an indicatorService instance in options');
+		if (!this.indicatorService) throw new Error('RegimeDetectionService requires an indicatorService instance in options');
 
 		this.logger.info('RegimeDetectionService initialized.');
 	}
@@ -64,12 +61,9 @@ export class RegimeDetectionService {
 	async detectRegime(options = {}) {
 		const { symbol, timeframe = '1h', count = 200, analysisDate } = options;
 
-		if (!symbol)
-			throw new Error('Symbol is required');
+		if (!symbol) throw new Error('Symbol is required');
 
 		const startTime = Date.now();
-
-		this.logger.info(`Detecting regime for ${symbol} on ${timeframe}${analysisDate ? ` at ${analysisDate}` : ''}`);
 
 		// Load OHLCV data
 		const ohlcv = await this.dataProvider.loadOHLCV({
@@ -81,8 +75,7 @@ export class RegimeDetectionService {
 			detectGaps: options.detectGaps !== false,
 		});
 
-		if (!ohlcv?.bars || ohlcv.bars.length < config.minBars)
-			throw new Error(`Insufficient data: need at least ${config.minBars} bars, got ${ohlcv?.bars?.length || 0}`);
+		if (!ohlcv?.bars || ohlcv.bars.length < config.minBars) throw new Error(`Insufficient data: need at least ${config.minBars} bars, got ${ohlcv?.bars?.length || 0}`);
 
 		// Extract price arrays (for Efficiency Ratio calculation)
 		const closes = ohlcv.bars.map((b) => b.close);
@@ -164,7 +157,11 @@ export class RegimeDetectionService {
 			},
 		};
 
-		this.logger.info(`Regime detected: ${regime} (confidence: ${confidence}) in ${result.metadata.detectionDuration}ms`);
+		this.logger.info(
+			`Detecting regime for ${symbol} on ${timeframe} ${analysisDate ? ` at ${analysisDate}` : ''} — Regime detected: ${regime} (confidence: ${confidence}) in ${
+				result.metadata.detectionDuration
+			}ms`
+		);
 
 		return result;
 	}
@@ -184,8 +181,7 @@ export class RegimeDetectionService {
 				config: { period: config.adxPeriod },
 			});
 
-			if (!series?.data || series.data.length === 0)
-				throw new Error('No ADX data returned');
+			if (!series?.data || series.data.length === 0) throw new Error('No ADX data returned');
 
 			// Extract ADX values
 			const adx = series.data.map((d) => d.value || d.adx || 0);
@@ -272,8 +268,7 @@ export class RegimeDetectionService {
 				config: { period },
 			});
 
-			if (!series?.data || series.data.length === 0)
-				throw new Error('No ATR data returned');
+			if (!series?.data || series.data.length === 0) throw new Error('No ATR data returned');
 
 			return series.data.map((d) => d.value || d.atr || 0);
 		} catch (error) {
@@ -311,8 +306,7 @@ export class RegimeDetectionService {
 				config: { period },
 			});
 
-			if (!series?.data || series.data.length === 0)
-				throw new Error('No EMA data returned');
+			if (!series?.data || series.data.length === 0) throw new Error('No EMA data returned');
 
 			return series.data.map((d) => d.value || d.ema || 0);
 		} catch (error) {
@@ -346,8 +340,7 @@ export class RegimeDetectionService {
 
 			const net = Math.abs(closes[i] - closes[i - period]);
 			let sum = 0;
-			for (let j = i - period + 1; j <= i; j++)
-				sum += Math.abs(closes[j] - closes[j - 1]);
+			for (let j = i - period + 1; j <= i; j++) sum += Math.abs(closes[j] - closes[j - 1]);
 
 			raw[i] = sum === 0 ? 0 : net / sum;
 		}
@@ -492,8 +485,7 @@ function ema(values, period) {
 	const k = 2 / (period + 1);
 	const out = [];
 	out[0] = values[0];
-	for (let i = 1; i < values.length; i++)
-		out[i] = values[i] * k + out[i - 1] * (1 - k);
+	for (let i = 1; i < values.length; i++) out[i] = values[i] * k + out[i - 1] * (1 - k);
 	return out;
 }
 
