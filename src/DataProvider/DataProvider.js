@@ -239,7 +239,7 @@ export class DataProvider {
 				this.logger.verbose(`Stored ${cleanedData.length} bars in Redis cache for ${symbol}:${timeframe}`);
 			}
 
-			this.logger.info(`Data Loaded : ${symbol} (${timeframe} / ${cleanedData.length}) bars in ${duration}ms${gapInfo}`);
+			this.logger.verbose(`Data Loaded : ${symbol} (${timeframe} / ${cleanedData.length}) bars in ${duration}ms${gapInfo}`);
 
 			return response;
 		} catch (error) {
