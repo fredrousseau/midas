@@ -197,9 +197,9 @@ function initCharts() {
             if (param && param.point) {
                 // Convert the point to time on the target chart
                 const time = param.time;
-                if (time) {
+                if (time) 
                     targetChart.setCrosshairPosition(param.point.y, time, param.seriesData ? param.seriesData.values().next().value : null);
-                }
+                
             } else {
                 // Clear crosshair on target chart
                 targetChart.clearCrosshairPosition();
@@ -306,9 +306,9 @@ async function fetchCatalog() {
 
 async function fetchOHLCV(symbol, timeframe, bars, analysisDate = null) {
     let url = `${API_BASE}/api/v1/ohlcv?symbol=${symbol}&timeframe=${timeframe}&count=${bars}`;
-    if (analysisDate) {
+    if (analysisDate) 
         url += `&analysisDate=${encodeURIComponent(analysisDate)}`;
-    }
+    
     const response = await authenticatedFetch(url);
     if (!response.ok) {
         const error = await response.json();
@@ -322,9 +322,9 @@ async function fetchOHLCV(symbol, timeframe, bars, analysisDate = null) {
 async function fetchIndicator(symbol, indicator, timeframe, bars, config = {}, analysisDate = null) {
     const configParam = encodeURIComponent(JSON.stringify(config));
     let url = `${API_BASE}/api/v1/indicators/${indicator}?symbol=${symbol}&timeframe=${timeframe}&bars=${bars}&config=${configParam}`;
-    if (analysisDate) {
+    if (analysisDate) 
         url += `&analysisDate=${encodeURIComponent(analysisDate)}`;
-    }
+    
     const response = await authenticatedFetch(url);
     if (!response.ok) {
         const error = await response.json();
@@ -630,9 +630,9 @@ async function loadData() {
 
     // Convert datetime-local to ISO string if provided
     let analysisDate = null;
-    if (analysisDateInput) {
+    if (analysisDateInput) 
         analysisDate = new Date(analysisDateInput).toISOString();
-    }
+    
 
     if (!symbol) {
         showStatus('Veuillez entrer un symbole', 'error');
@@ -653,14 +653,17 @@ async function loadData() {
         const ohlcvData = await fetchOHLCV(symbol, timeframe, bars, analysisDate);
         currentData = ohlcvData;
 
+        // Track loaded parameters
+        lastLoadedParams = { symbol, timeframe, bars, analysisDate };
+
         // Update main chart
         updateMainChart(ohlcvData);
 
         // Update chart title with backtesting info
         let chartTitle = `${symbol} - ${timeframe}`;
-        if (analysisDate) {
+        if (analysisDate) 
             chartTitle += ` (Backtesting: ${new Date(analysisDate).toLocaleDateString()})`;
-        }
+        
         document.getElementById('chartTitle').textContent = chartTitle;
 
         // Show/hide backtesting banner
@@ -697,9 +700,9 @@ async function loadData() {
 
             // Force time scale synchronization after loading indicators
             const mainLogicalRange = mainChart.timeScale().getVisibleLogicalRange();
-            if (mainLogicalRange) {
+            if (mainLogicalRange) 
                 indicatorChart.timeScale().setVisibleLogicalRange(mainLogicalRange);
-            }
+            
 
             showStatus('Tous les indicateurs ont été chargés', 'success');
             setTimeout(hideStatus, 2000);
@@ -766,6 +769,40 @@ document.querySelectorAll('#indicatorList input').forEach(checkbox => {
 // Enter key support
 document.getElementById('symbol').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') loadData();
+});
+
+// Track last loaded parameters to detect mismatches
+let lastLoadedParams = null;
+
+// Auto-reload when timeframe or bars change
+document.getElementById('timeframe').addEventListener('change', async () => {
+    if (currentData) {
+        const newTimeframe = document.getElementById('timeframe').value;
+        const newBars = parseInt(document.getElementById('bars').value);
+
+        // Check if parameters have changed from last load
+        if (lastLoadedParams &&
+            (lastLoadedParams.timeframe !== newTimeframe || lastLoadedParams.bars !== newBars)) {
+            // Show loading status immediately
+            showStatus('Changement de timeframe - Rechargement des données...', 'loading');
+            await loadData();
+        }
+    }
+});
+
+document.getElementById('bars').addEventListener('change', async () => {
+    if (currentData) {
+        const newTimeframe = document.getElementById('timeframe').value;
+        const newBars = parseInt(document.getElementById('bars').value);
+
+        // Check if parameters have changed from last load
+        if (lastLoadedParams &&
+            (lastLoadedParams.timeframe !== newTimeframe || lastLoadedParams.bars !== newBars)) {
+            // Show loading status immediately
+            showStatus('Changement du nombre de barres - Rechargement des données...', 'loading');
+            await loadData();
+        }
+    }
 });
 
 // Initialize charts when everything is ready
