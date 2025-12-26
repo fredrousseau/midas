@@ -188,7 +188,7 @@ export class DataProvider {
 				};
 			} else if (cacheResult.coverage === 'partial') {
 				// Partial hit - we have some bars, need to fetch missing ones
-				this.logger.info(`Cache HIT (partial) for ${symbol} (${timeframe}): have ${cacheResult.bars.length}/${count} bars, fetching missing data`);
+				this.logger.verbose(`Cache HIT (partial) for ${symbol} (${timeframe}): have ${cacheResult.bars.length}/${count} bars, fetching missing data`);
 				// For now, treat as miss and fetch all data
 				// TODO: Implement smart partial fetch
 			}
