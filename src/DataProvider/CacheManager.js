@@ -27,7 +27,7 @@ export class CacheManager {
 
 		if (!this.redisAdapter) throw new Error('CacheManager requires redisAdapter - cache is now Redis-only');
 
-		// Statistics (will be loaded from Redis if available)
+		// Statistics (will be loaded from Redis once connected)
 		this.stats = {
 			hits: 0,
 			misses: 0,
@@ -37,9 +37,7 @@ export class CacheManager {
 			merges: 0,
 		};
 
-		// Load persisted stats from Redis (async - non-blocking)
-		this._loadPersistedStats();
-
+		// Note: _loadPersistedStats() will be called by DataProvider after Redis connection
 		this.logger?.info('CacheManager initialized (Redis-only storage)', {
 			maxEntriesPerKey: this.maxEntriesPerKey,
 			ttl: this.ttl,
@@ -77,7 +75,7 @@ export class CacheManager {
 		try {
 			segment = await this.redisAdapter.get(key);
 		} catch (error) {
-			this.logger?.error(`Failed to get from Redis for ${key}:`, error.message);
+			this.logger?.error(`Failed to get from Redis for ${key}: ${error.message}`);
 			await this._incrementStat('misses');
 			return { coverage: 'none', bars: [], missing: { count, endTimestamp } };
 		}
@@ -144,7 +142,7 @@ export class CacheManager {
 		try {
 			existingSegment = await this.redisAdapter.get(key);
 		} catch (error) {
-			this.logger?.error(`Failed to load from Redis for ${key}:`, error.message);
+			this.logger?.error(`Failed to load from Redis for ${key}: ${error.message}`);
 		}
 
 		// Sort bars by timestamp
@@ -186,7 +184,7 @@ export class CacheManager {
 		try {
 			await this.redisAdapter.set(key, segment, Math.floor(this.ttl / 1000));
 		} catch (error) {
-			this.logger?.error(`Failed to persist segment to Redis for ${key}:`, error.message);
+			this.logger?.error(`Failed to persist segment to Redis for ${key}: ${error.message}`);
 			throw error;
 		}
 	}
@@ -240,7 +238,7 @@ export class CacheManager {
 			try {
 				await this.redisAdapter.set(key, segment, Math.floor(this.ttl / 1000));
 			} catch (error) {
-				this.logger?.error(`Failed to persist merged segment to Redis for ${key}:`, error.message);
+				this.logger?.error(`Failed to persist merged segment to Redis for ${key}: ${error.message}`);
 				throw error;
 			}
 	}
@@ -341,7 +339,7 @@ export class CacheManager {
 				ageSeconds: Math.round(timeSinceLastActivity / 1000),
 			});
 		} catch (error) {
-			this.logger?.error('Failed to load persisted stats:', error.message);
+			this.logger?.error(`Failed to load persisted stats: ${error.message}`);
 		}
 	}
 
@@ -358,7 +356,7 @@ export class CacheManager {
 
 		// Save stats to Redis (fire-and-forget, non-blocking)
 		this.redisAdapter.saveStats(this.stats).catch((err) => {
-			this.logger?.error('Failed to save stats:', err.message);
+			this.logger?.error(`Failed to save stats: ${err.message}`);
 		});
 	}
 
@@ -384,7 +382,7 @@ export class CacheManager {
 			this.logger?.info(`Cache cleared for ${key}`);
 			return 1;
 		} catch (error) {
-			this.logger?.error(`Failed to clear cache:`, error.message);
+			this.logger?.error(`Failed to clear cache: ${error.message}`);
 			return 0;
 		}
 	}
@@ -423,7 +421,7 @@ export class CacheManager {
 				}
 			}
 		} catch (error) {
-			this.logger?.error('Failed to get cache stats from Redis:', error.message);
+			this.logger?.error(`Failed to get cache stats from Redis: ${error.message}`);
 		}
 
 		const totalRequests = this.stats.hits + this.stats.misses + this.stats.partialHits;

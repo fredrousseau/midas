@@ -36,7 +36,7 @@ export class RedisCacheAdapter {
 
 		// Event handlers
 		this.client.on('error', (err) => {
-			this.logger?.error('Redis Client Error:', err.message);
+			this.logger?.error(`Redis Client Error: ${err.message}`);
 			this.isConnected = false;
 		});
 
@@ -98,7 +98,7 @@ export class RedisCacheAdapter {
 
 			return segment;
 		} catch (error) {
-			this.logger?.error(`Redis get error for ${key}:`, error.message);
+			this.logger?.error(`Redis get error for ${key}: ${error.message}`);
 			return null;
 		}
 	}
@@ -134,7 +134,7 @@ export class RedisCacheAdapter {
 			if (ttl) await this.client.setEx(redisKey, ttl, data);
 			else await this.client.set(redisKey, data);
 		} catch (error) {
-			this.logger?.error(`Redis set error for ${key}:`, error.message);
+			this.logger?.error(`Redis set error for ${key}: ${error.message}`);
 		}
 	}
 
@@ -150,7 +150,7 @@ export class RedisCacheAdapter {
 			const redisKey = this.keyPrefix + key;
 			await this.client.del(redisKey);
 		} catch (error) {
-			this.logger?.error(`Redis delete error for ${key}:`, error.message);
+			this.logger?.error(`Redis delete error for ${key}: ${error.message}`);
 		}
 	}
 
@@ -171,7 +171,7 @@ export class RedisCacheAdapter {
 			await this.client.del(keys);
 			return keys.length;
 		} catch (error) {
-			this.logger?.error('Redis clear error:', error.message);
+			this.logger?.error(`Redis clear error: ${error.message}`);
 			return 0;
 		}
 	}
@@ -190,7 +190,7 @@ export class RedisCacheAdapter {
 			// Remove prefix from keys
 			return redisKeys.map((key) => key.replace(this.keyPrefix, ''));
 		} catch (error) {
-			this.logger?.error('Redis keys error:', error.message);
+			this.logger?.error(`Redis keys error: ${error.message}`);
 			return [];
 		}
 	}
@@ -219,7 +219,7 @@ export class RedisCacheAdapter {
 			const redisKey = this.keyPrefix + key;
 			return await this.client.ttl(redisKey);
 		} catch (error) {
-			this.logger?.error(`Redis TTL error for ${key}:`, error.message);
+			this.logger?.error(`Redis TTL error for ${key}: ${error.message}`);
 			return -2;
 		}
 	}
@@ -241,7 +241,7 @@ export class RedisCacheAdapter {
 				memory: info,
 			};
 		} catch (error) {
-			this.logger?.error('Redis info error:', error.message);
+			this.logger?.error(`Redis info error: ${error.message}`);
 			return { connected: false, error: error.message };
 		}
 	}
@@ -263,7 +263,7 @@ export class RedisCacheAdapter {
 			});
 			await this.client.set(statsKey, data);
 		} catch (error) {
-			this.logger?.error('Redis saveStats error:', error.message);
+			this.logger?.error(`Redis saveStats error: ${error.message}`);
 		}
 	}
 
@@ -288,7 +288,7 @@ export class RedisCacheAdapter {
 
 			return { stats, lastActivity };
 		} catch (error) {
-			this.logger?.error('Redis loadStats error:', error.message);
+			this.logger?.error(`Redis loadStats error: ${error.message}`);
 			return null;
 		}
 	}

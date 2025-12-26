@@ -42,12 +42,6 @@ export class DataProvider {
 			db: parameters.redisConfig.db,
 		});
 
-		// Connect to Redis
-		redisAdapter.connect().catch((err) => {
-			this.logger.error('Failed to connect to Redis:', err.message);
-			this.cacheManager = null;
-		});
-
 		// CacheManager with Redis-only storage
 		const cacheTTL = (parameters.redisConfig.ttl || 300) * 1000; // Convert seconds to ms
 		this.cacheManager = new CacheManager({
@@ -57,7 +51,17 @@ export class DataProvider {
 			redisAdapter: redisAdapter,
 		});
 
-		this.logger.info('DataProvider initialized with Redis-only cache');
+		// Connect to Redis and load persisted stats once connected
+		redisAdapter.connect()
+			.then(() => {
+				// Load persisted stats after successful connection
+				this.cacheManager._loadPersistedStats();
+				this.logger.info('DataProvider initialized with Redis-only cache');
+			})
+			.catch((err) => {
+				this.logger.error(`Failed to connect to Redis: ${err.message}`);
+				this.cacheManager = null;
+			});
 	}
 
 	/**
