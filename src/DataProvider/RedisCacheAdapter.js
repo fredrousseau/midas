@@ -27,13 +27,9 @@ export class RedisCacheAdapter {
 			},
 		};
 
-		if (options.password) {
-			redisConfig.password = options.password;
-		}
+		if (options.password) redisConfig.password = options.password;
 
-		if (options.db !== undefined) {
-			redisConfig.database = options.db;
-		}
+		if (options.db !== undefined) redisConfig.database = options.db;
 
 		// Create Redis client (v4+ API)
 		this.client = redis.createClient(redisConfig);
@@ -63,18 +59,14 @@ export class RedisCacheAdapter {
 	 * Connect to Redis
 	 */
 	async connect() {
-		if (!this.isConnected && !this.client.isOpen) {
-			await this.client.connect();
-		}
+		if (!this.isConnected && !this.client.isOpen) await this.client.connect();
 	}
 
 	/**
 	 * Disconnect from Redis
 	 */
 	async disconnect() {
-		if (this.client.isOpen) {
-			await this.client.quit();
-		}
+		if (this.client.isOpen) await this.client.quit();
 	}
 
 	/**
@@ -93,9 +85,7 @@ export class RedisCacheAdapter {
 			const redisKey = this.keyPrefix + key;
 			const data = await this.client.get(redisKey);
 
-			if (!data) {
-				return null;
-			}
+			if (!data) return null;
 
 			// Deserialize segment
 			const segment = JSON.parse(data);
@@ -141,11 +131,8 @@ export class RedisCacheAdapter {
 			const data = JSON.stringify(serializable);
 
 			// Set with optional TTL
-			if (ttl) {
-				await this.client.setEx(redisKey, ttl, data);
-			} else {
-				await this.client.set(redisKey, data);
-			}
+			if (ttl) await this.client.setEx(redisKey, ttl, data);
+			else await this.client.set(redisKey, data);
 		} catch (error) {
 			this.logger?.error(`Redis set error for ${key}:`, error.message);
 		}
@@ -157,9 +144,7 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<void>}
 	 */
 	async delete(key) {
-		if (!this.isConnected) {
-			return;
-		}
+		if (!this.isConnected) return;
 
 		try {
 			const redisKey = this.keyPrefix + key;
@@ -175,17 +160,13 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<number>} Number of keys deleted
 	 */
 	async clear(pattern = '*') {
-		if (!this.isConnected) {
-			return 0;
-		}
+		if (!this.isConnected) return 0;
 
 		try {
 			const searchPattern = this.keyPrefix + pattern;
 			const keys = await this.client.keys(searchPattern);
 
-			if (keys.length === 0) {
-				return 0;
-			}
+			if (keys.length === 0) return 0;
 
 			await this.client.del(keys);
 			return keys.length;
@@ -200,9 +181,7 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<Array<string>>} Array of cache keys with prefix removed (e.g., "BTCUSDT:1h")
 	 */
 	async keys() {
-		if (!this.isConnected) {
-			return [];
-		}
+		if (!this.isConnected) return [];
 
 		try {
 			const searchPattern = this.keyPrefix + '*';
@@ -234,9 +213,7 @@ export class RedisCacheAdapter {
 	 *   - -2: key doesn't exist or Redis not connected
 	 */
 	async getTTL(key) {
-		if (!this.isConnected) {
-			return -2;
-		}
+		if (!this.isConnected) return -2;
 
 		try {
 			const redisKey = this.keyPrefix + key;
@@ -252,9 +229,7 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<Object>} Object with connection status, dbSize, and memory info
 	 */
 	async getInfo() {
-		if (!this.isConnected) {
-			return { connected: false };
-		}
+		if (!this.isConnected) return { connected: false };
 
 		try {
 			const info = await this.client.info('memory');
@@ -278,9 +253,7 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<void>}
 	 */
 	async saveStats(stats) {
-		if (!this.isConnected) {
-			return;
-		}
+		if (!this.isConnected) return;
 
 		try {
 			const statsKey = this.keyPrefix + '_stats';
@@ -300,17 +273,13 @@ export class RedisCacheAdapter {
 	 * @returns {Promise<Object|null>} Object with { stats, lastActivity } or null if not found
 	 */
 	async loadStats() {
-		if (!this.isConnected) {
-			return null;
-		}
+		if (!this.isConnected) return null;
 
 		try {
 			const statsKey = this.keyPrefix + '_stats';
 			const data = await this.client.get(statsKey);
 
-			if (!data) {
-				return null;
-			}
+			if (!data) return null;
 
 			const stats = JSON.parse(data);
 			// Keep lastActivity for validation, but remove it from stats object
