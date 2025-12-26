@@ -133,11 +133,11 @@ function getIndicatorValuesAtTime(time) {
             const dataPoint = seriesData.find(point => point.time === time);
 
             if (dataPoint && dataPoint.value !== null && dataPoint.value !== undefined) {
-                // Create a nice display name
-                const displayName = key
-                    .replace('-overlay', '')
-                    .replace('-oscillator', '')
-                    .replace(/-/g, ' ')
+                // Get display name from seriesDisplayNames Map, or fallback to cleaned key
+                const displayName = seriesDisplayNames.get(key) || key
+                    .replace('_overlay', '')
+                    .replace('_oscillator', '')
+                    .replace(/_/g, ' ')
                     .toUpperCase();
 
                 values[displayName] = dataPoint.value;

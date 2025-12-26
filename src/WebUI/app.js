@@ -9,6 +9,7 @@ let currentData = null;
 let indicatorSeries = new Map();
 let catalogData = null;
 let indicatorDescriptions = new Map(); // Map indicator key to description
+let seriesDisplayNames = new Map(); // Map series key to display name for data panel
 let appTimezone = 'Europe/Paris'; // Default, will be loaded from API
 let isSyncingCharts = false; // Flag to prevent circular sync
 
@@ -506,6 +507,7 @@ function clearAllIndicators() {
 	});
 
 	indicatorSeries.clear();
+	seriesDisplayNames.clear();
 
 	// Hide indicator chart wrapper if no oscillators
 	const hasOscillators = Array.from(indicatorSeries.keys()).some((key) => key.includes('oscillator'));
@@ -519,17 +521,27 @@ function addOverlayIndicator(name, seriesDataArray) {
 
 	seriesDataArray.forEach((seriesData, index) => {
 		const seriesName = seriesData.name || name;
-		const key = `${name}_${seriesName}_overlay`;
+		// Get full description from catalog, or fallback to cleaned indicator name
+		const catalogDescription = indicatorDescriptions.get(name);
+		const displayName = catalogDescription
+			? (seriesDataArray.length > 1 ? `${catalogDescription} - ${seriesName.toUpperCase()}` : catalogDescription)
+			: name.replace(/_/g, ' ').toUpperCase();
+
+		// Use only seriesName for the key if it's different from name, otherwise use name with index
+		const key = seriesDataArray.length > 1
+			? `${seriesName}_overlay_${index}`
+			: `${seriesName}_overlay`;
 		const color = colors[index % colors.length];
 
 		const lineSeries = mainChart.addLineSeries({
 			color: color,
 			lineWidth: 2,
-			title: seriesName.toUpperCase(),
+			title: displayName,
 		});
 
 		lineSeries.setData(seriesData.data);
 		indicatorSeries.set(key, lineSeries);
+		seriesDisplayNames.set(key, displayName); // Store display name for data panel
 	});
 }
 
@@ -548,17 +560,27 @@ function addOscillatorIndicator(name, seriesDataArray) {
 	try {
 		seriesDataArray.forEach((seriesData, index) => {
 			const seriesName = seriesData.name || name;
-			const key = `${name}_${seriesName}_oscillator`;
+			// Get full description from catalog, or fallback to cleaned indicator name
+			const catalogDescription = indicatorDescriptions.get(name);
+			const displayName = catalogDescription
+				? (seriesDataArray.length > 1 ? `${catalogDescription} - ${seriesName.toUpperCase()}` : catalogDescription)
+				: name.replace(/_/g, ' ').toUpperCase();
+
+			// Use only seriesName for the key if it's different from name, otherwise use name with index
+			const key = seriesDataArray.length > 1
+				? `${seriesName}_oscillator_${index}`
+				: `${seriesName}_oscillator`;
 			const color = colors[index % colors.length];
 
 			const lineSeries = indicatorChart.addLineSeries({
 				color: color,
 				lineWidth: 2,
-				title: seriesName.toUpperCase(),
+				title: displayName,
 			});
 
 			lineSeries.setData(seriesData.data);
 			indicatorSeries.set(key, lineSeries);
+			seriesDisplayNames.set(key, displayName); // Store display name for data panel
 		});
 
 		// Fit content after adding all series
@@ -826,6 +848,7 @@ document.querySelectorAll('#indicatorList input').forEach((checkbox) => {
 				else if (key.includes('oscillator')) indicatorChart.removeSeries(series);
 
 				indicatorSeries.delete(key);
+				seriesDisplayNames.delete(key);
 			});
 
 			// Hide oscillator chart if no oscillators remain
