@@ -170,7 +170,7 @@ export class Indicator {
 
 		// Log if we didn't get enough bars
 		if (ohlcvBars.length < totalBarsToFetch) 
-			this.logger.warn(`Requested ${totalBarsToFetch} bars but only got ${ohlcvBars.length}. Results may have null values at the beginning.`);
+			this.logger.warn(`Requested ${totalBarsToFetch} bars for ${symbol}/${timeframe} but only got ${ohlcvBars.length}. Results may have null values at the beginning.`);
 
 		return this._calculateFromBars({ bars: ohlcvBars, indicators, requestedBars });
 	}
