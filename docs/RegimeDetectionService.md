@@ -13,12 +13,10 @@ Le service s'intègre dans l'architecture du projet en s'appuyant sur :
 
 ### Calculs internes
 
-Le service utilise exclusivement l'`indicatorService` pour les indicateurs standards (ADX, ATR, EMA).
+Le service utilise exclusivement l'`indicatorService` pour les indicateurs standards (ADX avec ±DI, ATR, EMA).
 
-Seuls quelques calculs sont effectués localement :
-- **Efficiency Ratio** : Calcul personnalisé non disponible dans l'indicatorService
-- **Directional Indicators (±DI)** : Complémentaires à l'ADX
-- **RMA (Wilder's smoothing)** : Utilitaire pour lisser les DI et True Range
+Seul le calcul suivant est effectué localement :
+- **Efficiency Ratio (ER)** : Calcul personnalisé avec lissage EMA intégré, non disponible dans l'indicatorService
 
 ## Configuration
 
@@ -28,10 +26,11 @@ Seuls quelques calculs sont effectués localement :
 config = {
   adxPeriod: 14,           // Période ADX
   erPeriod: 10,            // Période Efficiency Ratio
+  erSmoothPeriod: 3,       // Période de lissage de l'ER
   atrShortPeriod: 14,      // Période ATR court terme
   atrLongPeriod: 50,       // Période ATR long terme
-  maShortPeriod: 20,       // Période MA court terme
-  maLongPeriod: 50,        // Période MA long terme
+  maShortPeriod: 20,       // Période EMA court terme
+  maLongPeriod: 50,        // Période EMA long terme
   minBars: 60              // Minimum de barres requises
 }
 ```
@@ -81,32 +80,45 @@ detectRegime({
 ### Processus de détection
 
 1. **Chargement des données OHLCV** via `dataProvider`
-2. **Calcul parallèle** de 6 indicateurs :
-   - ADX (Average Directional Index)
-   - ATR court terme et long terme
-   - Efficiency Ratio
-   - EMA court terme et long terme
-3. **Analyse des composants** :
-   - Calcul du ratio ATR
-   - Détermination de la direction du marché
-4. **Détection du type de régime**
-5. **Calcul du score de confiance**
+   - Charge automatiquement `Math.max(count, 60 + 50)` barres pour éviter le biais de warmup
+
+2. **Calcul parallèle** de 6 indicateurs (via `Promise.all`) :
+   - ADX avec +DI et -DI (via IndicatorService)
+   - ATR court terme (14) et long terme (50)
+   - Efficiency Ratio (calcul local avec lissage EMA)
+   - EMA court terme (20) et long terme (50)
+
+3. **Détection de la direction** :
+   - Hypothèse directionnelle basée sur la structure EMA
+   - Filtre de confirmation via les Directional Indicators (±DI)
+   - Calcul de la force directionnelle normalisée par ATR long
+
+4. **Détection du type de régime** :
+   - Ordre de priorité : Breakout → Trending → Range
+   - Basé sur ADX, ER et ratio ATR
+
+5. **Calcul du score de confiance multi-composants** :
+   - Regime Clarity Score (35%)
+   - Signal Coherence (30%)
+   - Direction Score (20%)
+   - ER Score (15%)
 
 ### Structure de retour
 
 ```javascript
 {
-  regime: string,           // Type de régime (9 valeurs possibles)
+  regime: string,           // Type de régime (8 valeurs possibles)
+  direction: string,        // Direction globale : 'bullish' | 'bearish' | 'neutral'
   confidence: number,       // Score de confiance (0.00 à 1.00)
   components: {
     adx: number,           // Valeur ADX (2 décimales)
     plusDI: number,        // +DI (2 décimales)
     minusDI: number,       // -DI (2 décimales)
     efficiency_ratio: number,  // ER (4 décimales)
-    atr_ratio: number,     // Ratio ATR (4 décimales)
+    atr_ratio: number,     // Ratio ATR court/long (4 décimales)
     direction: {
       direction: string,   // 'bullish' | 'bearish' | 'neutral'
-      strength: number,    // Force de direction (4 décimales)
+      strength: number,    // Force normalisée (-2 à +2, 4 décimales)
       emaShort: number,    // EMA courte (2 décimales)
       emaLong: number      // EMA longue (2 décimales)
     }
@@ -119,9 +131,9 @@ detectRegime({
     lastTimestamp: number,
     gapCount: number,
     fromCache: boolean,
-    loadDuration: number,
-    detectionDuration: number,
-    loadedAt: string
+    loadDuration: number,    // ms
+    detectionDuration: number, // ms
+    loadedAt: string         // ISO 8601
   }
 }
 ```
@@ -192,44 +204,40 @@ Le cycle typique : accumulation (range) → distribution (breakout) → tendance
 
 ## Valeurs possibles pour `regime`
 
-### Régimes de tendance (3 types)
+### Régimes de tendance (2 types)
 
 **Conditions** : ADX ≥ 25 ET Efficiency Ratio ≥ 0.5
 
 - **`trending_bullish`** : Tendance haussière confirmée
-  - Prix > EMA long
-  - EMA court > EMA long
-  - ADX élevé
-  - ER élevé
+  - Prix > EMA court > EMA long
+  - +DI > -DI (confirmation directionnelle)
+  - ADX ≥ 25
+  - ER ≥ 0.5
 
 - **`trending_bearish`** : Tendance baissière confirmée
-  - Prix < EMA long
-  - EMA court < EMA long
-  - ADX élevé
-  - ER élevé
-
-- **`trending_neutral`** : Tendance sans direction claire
-  - ADX élevé et ER élevé
-  - Mais direction neutre
+  - Prix < EMA long ET EMA court < EMA long
+  - -DI > +DI (confirmation directionnelle)
+  - ADX ≥ 25
+  - ER ≥ 0.5
 
 ### Régimes de breakout (3 types)
 
-**Conditions** : ATR ratio > 1.3 ET ADX > 25
+**Conditions** : ATR ratio > 1.3 ET ADX ≥ 25
 
 - **`breakout_bullish`** : Breakout haussier
-  - Volatilité en expansion
-  - Direction bullish
-  - ADX en hausse
+  - ATR ratio > 1.3 (volatilité en expansion)
+  - Direction bullish confirmée par ±DI
+  - ADX ≥ 25
 
 - **`breakout_bearish`** : Breakout baissier
-  - Volatilité en expansion
-  - Direction bearish
-  - ADX en hausse
+  - ATR ratio > 1.3 (volatilité en expansion)
+  - Direction bearish confirmée par ±DI
+  - ADX ≥ 25
 
 - **`breakout_neutral`** : Breakout sans direction claire
-  - Volatilité en expansion
-  - ADX en hausse
-  - Direction neutre
+  - ATR ratio > 1.3 (volatilité en expansion)
+  - ADX ≥ 25
+  - Direction neutralisée par contradiction ±DI/EMA
 
 ### Régimes de range (3 types)
 
@@ -252,31 +260,42 @@ Le cycle typique : accumulation (range) → distribution (breakout) → tendance
 
 ## Calcul de la direction
 
-La direction du marché est déterminée par la relation entre le prix et les moyennes mobiles :
+La direction du marché utilise un processus en deux étapes :
 
-### Types de direction
+### 1. Hypothèse directionnelle (Structure EMA)
+
+Basée sur la structure des moyennes mobiles :
 
 - **`bullish`** (Haussier)
-  - Prix > EMA long
-  - EMA court > EMA long
+  - Prix > EMA court > EMA long
 
 - **`bearish`** (Baissier)
-  - Prix < EMA long
-  - EMA court < EMA long
+  - Prix < EMA long ET EMA court < EMA long
 
 - **`neutral`** (Neutre)
-  - Autres cas (signaux mixtes)
+  - Autres cas (structure mixte)
 
-### Strength (Force)
+### 2. Filtre de confirmation (±DI)
 
-La force de la direction est calculée comme :
+Les Directional Indicators valident ou neutralisent l'hypothèse EMA :
+
+- Si direction = `bullish` MAIS +DI < -DI → direction devient `neutral`
+- Si direction = `bearish` MAIS -DI < +DI → direction devient `neutral`
+
+Ce filtre réduit les faux signaux de tendance dans les marchés range ou bruyants.
+
+### Strength (Force directionnelle)
+
+La force est normalisée par l'ATR long pour stabilité multi-symboles :
+
 ```javascript
-strength = (emaShort - emaLong) / atrLong
+strength = clamp((emaShort - emaLong) / atrLong, -2, 2)
 ```
 
 - Valeur **positive** : Force haussière
 - Valeur **négative** : Force baissière
 - Proche de **zéro** : Direction faible
+- **Bornée entre -2 et +2** pour éviter les valeurs aberrantes
 
 ## Score de confiance
 
@@ -299,11 +318,16 @@ Le score de confiance combine 4 critères indépendants :
 
 ### 2. ER Score (Efficiency Ratio)
 
-Évalue l'adéquation de l'Efficiency Ratio :
+Évalue l'adéquation de l'Efficiency Ratio, **adapté au régime** :
 
-**Pour tendances :**
+**Pour tendances (trending) :**
 - ER > 0.7 → Score 1.0
 - ER > 0.5 → Score 0.7
+- Autres → Score 0.4
+
+**Pour breakouts :**
+- ER > 0.4 → Score 1.0
+- ER > 0.3 → Score 0.7
 - Autres → Score 0.4
 
 **Pour ranges :**
@@ -333,11 +357,22 @@ Score = nombre de règles satisfaites / nombre total de règles
 
 ### Score final
 
+**Moyenne pondérée** des 4 composants :
+
 ```javascript
-confidence = moyenne(regimeClarityScore, erScore, directionScore, coherenceScore)
+confidence = 0.35 × regimeClarityScore
+           + 0.30 × coherenceScore
+           + 0.20 × directionScore
+           + 0.15 × erScore
 ```
 
 Arrondi à 2 décimales (0.00 à 1.00)
+
+**Pondération justifiée** :
+- **35% Regime Clarity** : Le plus important - mesure la cohérence ADX/régime
+- **30% Coherence** : Accord global entre tous les indicateurs
+- **20% Direction** : Force exploitable de la direction
+- **15% ER** : Complément utile mais moins critique
 
 ## Indicateurs utilisés
 
@@ -362,21 +397,26 @@ Arrondi à 2 décimales (0.00 à 1.00)
 ### Efficiency Ratio (ER)
 
 - **Mesure** : Efficacité du mouvement de prix
-- **Formule** : Mouvement net / Somme des mouvements
-- **Calcul** : Personnalisé (non disponible dans l'IndicatorService)
+- **Formule** : Mouvement net / Somme des mouvements absolus
+- **Calcul** : Personnalisé en local (non disponible dans l'IndicatorService)
+- **Lissage** : EMA à 3 périodes pour stabilité
 - **Interprétation** :
-  - ER proche de 0 : Marché choppy
-  - ER proche de 1 : Mouvement directionnel efficace
-- **Lissage** : EMA(3) appliqué inline pour stabilité
+  - ER proche de 0 : Marché choppy, mouvements inefficaces
+  - ER proche de 1 : Mouvement directionnel très efficace
+  - ER ≥ 0.5 : Tendance efficace
+  - ER ≤ 0.3 : Range/choppy
 
 ### Directional Indicators (±DI)
 
 - **Mesure** : Direction du mouvement de prix
-- **Calcul** : Interne, utilise le smoothing RMA de Wilder
+- **Source** : Récupérés via IndicatorService (composants de l'ADX)
 - **Composants** :
-  - **+DI** : Force du mouvement haussier
-  - **-DI** : Force du mouvement baissier
-- **Usage** : Complète l'analyse ADX pour déterminer la direction
+  - **+DI** : Force du mouvement haussier (0-100+)
+  - **-DI** : Force du mouvement baissier (0-100+)
+- **Usage** :
+  - Filtre de confirmation pour la direction basée sur les EMA
+  - Si +DI > -DI : pression haussière
+  - Si -DI > +DI : pression baissière
 
 ### EMA (Exponential Moving Average)
 
@@ -421,6 +461,7 @@ console.log(`Direction: ${result.components.direction.direction}`);
 ```javascript
 {
   regime: 'trending_bullish',
+  direction: 'bullish',
   confidence: 0.82,
   components: {
     adx: 32.45,
@@ -452,50 +493,86 @@ console.log(`Direction: ${result.components.direction.direction}`);
 
 ## Fonctions utilitaires
 
-### `rma(values, period)`
-
-Implémente le Wilder's Smoothing (RMA) utilisé pour lisser les composants des Directional Indicators.
-
-**Algorithme** :
-```javascript
-rma[0] = values[0]
-rma[i] = (rma[i-1] × (period - 1) + values[i]) / period
-```
-
-**Usage** :
-- Lissage du True Range
-- Lissage du Directional Movement (+DM, -DM)
-
-**Note** : Cette fonction locale est nécessaire car elle opère sur des tableaux calculés (TR, DM) qui ne sont pas des données OHLCV standard que l'IndicatorService pourrait traiter.
-
-### `calculateTrueRange(highs, lows, closes)`
-
-Calcule le True Range pour chaque barre :
-```javascript
-TR = max(high - low, |high - close_prev|, |low - close_prev|)
-```
-
 ### Helpers d'arrondi
 
-- **`round2(x)`** : Arrondit à 2 décimales (pour prix, ADX, DI)
+- **`round2(x)`** : Arrondit à 2 décimales (pour prix, ADX, DI, EMA)
 - **`round4(x)`** : Arrondit à 4 décimales (pour ER, ratios, strength)
 
 ## Points forts
 
 ✅ **Architecture propre** avec séparation des responsabilités
-✅ **Utilisation optimale de l'IndicatorService** pour tous les indicateurs standards
+✅ **Utilisation optimale de l'IndicatorService** pour tous les indicateurs standards (ADX, ±DI, ATR, EMA)
 ✅ **Performance** avec calculs parallèles via `Promise.all`
-✅ **Code épuré** sans duplication inutile (suppression de la fonction `ema` redondante)
+✅ **Documentation inline complète** expliquant chaque phase de détection
+✅ **Filtre de confirmation ±DI** pour réduire les faux signaux de tendance
+✅ **Score de confiance pondéré** favorisant la clarté du régime et la cohérence des signaux
 ✅ **Logging** informatif pour le débogage
 ✅ **Métadonnées riches** dans le résultat (cache, durée, gaps)
 ✅ **Flexibilité** via les paramètres `analysisDate`, `useCache`, `detectGaps`
-✅ **Score de confiance multi-critères** pour évaluer la fiabilité
 
-## Optimisations récentes
+## Améliorations récentes (version actuelle)
 
-✨ **Suppression de la fonction `ema`** : Éliminée car redondante avec l'IndicatorService, calcul EMA inline pour le lissage ER
-✨ **Conservation de `rma`** : Nécessaire pour les calculs internes de DI qui opèrent sur des données calculées
+✨ **Logique consolidée** : Code refactorisé avec méthodes helper intégrées au flux principal
+✨ **Documentation inline** : Commentaires détaillés expliquant chaque phase (1-8) du processus de détection
+✨ **Utilisation de ±DI via IndicatorService** : Plus besoin de calcul local des Directional Indicators
+✨ **Filtre de confirmation directionnel** : Les ±DI neutralisent les faux signaux EMA dans les ranges
+✨ **Score de confiance pondéré** : Poids adaptés (35% clarity, 30% coherence, 20% direction, 15% ER)
+✨ **Lissage ER configurable** : Période `erSmoothPeriod` pour contrôler la réactivité de l'Efficiency Ratio
+✨ **Suppression de code mort** : Fonctions `rma()`, `calculateTrueRange()`, `_calculateDI()` éliminées
+
+## Nombre de barres nécessaires
+
+### Minimum technique
+
+**60 barres** - Seuil minimal absolu défini dans `config.minBars`
+
+Le service lance une erreur si moins de 60 barres sont disponibles.
+
+### Barres chargées automatiquement
+
+Le service charge automatiquement :
+```javascript
+count = Math.max(count_demandé, config.minBars + 50)
+```
+
+Soit **minimum 110 barres** pour éviter le **biais de warmup** des indicateurs.
+
+### Recommandation par timeframe
+
+Le nombre de **barres** reste constant (60-200), mais la **période temporelle** varie :
+
+| Timeframe | 60 barres | 110 barres | 200 barres (optimal) |
+|-----------|-----------|------------|----------------------|
+| **1m** | 1 heure | 1h50 | 3h20 |
+| **5m** | 5 heures | 9h10 | 16h40 |
+| **15m** | 15 heures | 27h30 | 50h (~2 jours) |
+| **1h** | 2.5 jours | 4.6 jours | **8.3 jours** |
+| **4h** | 10 jours | 18 jours | **33 jours** |
+| **1d** | 2 mois | 3.6 mois | **6.6 mois** |
+
+### Justification technique
+
+Les indicateurs les plus exigeants sont :
+
+| Indicateur | Période | Warmup nécessaire |
+|------------|---------|-------------------|
+| ADX | 14 | ~14-28 barres |
+| ATR Short | 14 | ~14 barres |
+| **ATR Long** | **50** | **~50 barres** |
+| EMA Short | 20 | ~20 barres |
+| **EMA Long** | **50** | **~50 barres** |
+| ER (lissé) | 10 + 3 | ~13 barres |
+
+Les périodes longues (50) justifient le buffer de 50 barres supplémentaires.
+
+### Recommandations pratiques
+
+- **60 barres** : Minimum technique absolu
+- **110 barres** : Recommandé pour résultats fiables
+- **200 barres** : Optimal pour stabilité maximale (valeur par défaut de l'API)
+
+**Note importante** : Les périodes d'indicateurs sont fixes quelle que soit la timeframe. Sur 1h, l'EMA 50 couvre ~2 jours, tandis que sur 1d elle couvre ~7 semaines. C'est la même logique d'analyse, mais à des échelles temporelles différentes.
 
 ## Fichier source
 
-[RegimeDetectionService.js](RegimeDetectionService.js)
+[RegimeDetectionService.js](../src/Trading/MarketAnalysis/RegimeDetection/RegimeDetectionService.js)
