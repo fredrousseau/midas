@@ -193,7 +193,13 @@ export class StatisticalContextService {
 			enriched.support_resistance = this._identifySupportResistance(ohlcvData, enriched);
 
 			// Full level only: add micro patterns
-			if (contextDepth.level === 'full') enriched.micro_patterns = this.patternDetector.detect({ ohlcvData, currentPrice });
+			if (contextDepth.level === 'full')
+				enriched.micro_patterns = this.patternDetector.detect({
+					ohlcvData,
+					currentPrice,
+					volatilityIndicators: enriched.volatility_indicators,
+					volumeIndicators: enriched.volume_indicators
+				});
 		}
 
 		enriched.summary = this._generateSummary(enriched, contextDepth.level);
