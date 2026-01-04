@@ -103,14 +103,28 @@ export class StatisticalContextService {
 
 	/**
 	 * Generate complete statistical context
+	 * @param {Object} params
+	 * @param {string} params.symbol - Trading symbol
+	 * @param {Object} params.timeframes - Object mapping temporality to timeframe
+	 *                                     Example: { long: '1w', medium: '1d', short: '1h' }
+	 * @param {number} params.count - Number of bars to analyze
+	 * @param {string} params.analysisDate - Optional date for historical analysis
 	 */
 	async generateFullContext({ symbol, timeframes, count = 200, analysisDate }) {
 		const startTime = Date.now();
-		this.logger.info(`Generating statistical context for ${symbol} across ${timeframes.length} timeframes`);
+
+		// Validate and parse timeframes configuration
+		if (!timeframes || typeof timeframes !== 'object' || Array.isArray(timeframes)) {
+			throw new Error('timeframes must be an object with long/medium/short keys. Example: { long: "1w", medium: "1d", short: "1h" }');
+		}
+
+		const { timeframesArray, temporalityMap } = this._parseTimeframesConfig(timeframes);
+
+		this.logger.info(`Generating statistical context for ${symbol} across ${timeframesArray.length} timeframes`);
 
 		const contexts = {};
 		const higherTFData = {};
-		const sortedTFs = this._sortTimeframes(timeframes);
+		const sortedTFs = this._sortTimeframes(timeframesArray);
 
 		for (const tf of sortedTFs) {
 			try {
@@ -130,11 +144,26 @@ export class StatisticalContextService {
 
 		const alignment = this._analyzeMultiTimeframeAlignment(contexts);
 
-		// Convert contexts object to array
-		const timeframesArray = Object.entries(contexts).map(([tf, data]) => ({
-			timeframe: tf,
-			...data
-		}));
+		// Group timeframes by temporality (long, medium, short)
+		const timeframesByTemporality = {
+			long: null,
+			medium: null,
+			short: null
+		};
+
+		for (const [tf, data] of Object.entries(contexts)) {
+			// Use explicit mapping from user configuration
+			const temporality = temporalityMap[tf];
+
+			// Assign to the corresponding temporality
+			// Since we now require explicit mapping, each timeframe goes to its designated slot
+			if (temporality) {
+				timeframesByTemporality[temporality] = {
+					timeframe: tf,
+					...data
+				};
+			}
+		}
 
 		return {
 			metadata: {
@@ -145,7 +174,7 @@ export class StatisticalContextService {
 				generation_time_ms: Date.now() - startTime,
 				data_quality: this._assessDataQuality(contexts),
 			},
-			timeframes: timeframesArray,
+			timeframes: timeframesByTemporality,
 			multi_timeframe_alignment: alignment,
 		};
 	}
@@ -213,24 +242,103 @@ export class StatisticalContextService {
 		return enriched;
 	}
 
+	/**
+	 * Parse timeframes configuration
+	 * @param {Object} timeframes - Object mapping temporality to timeframe
+	 *                              Example: { long: '1w', medium: '1d', short: '1h' }
+	 * @returns {Object} { timeframesArray, temporalityMap }
+	 */
+	_parseTimeframesConfig(timeframes) {
+		const timeframesArray = [];
+		const temporalityMap = {};
+
+		// Extract timeframes and build reverse mapping
+		for (const [temporality, tf] of Object.entries(timeframes)) {
+			if (tf && ['long', 'medium', 'short'].includes(temporality)) {
+				timeframesArray.push(tf);
+				temporalityMap[tf] = temporality;
+			}
+		}
+
+		// Validate that at least one timeframe was provided
+		if (timeframesArray.length === 0) {
+			throw new Error('No valid timeframes found. Expected object with long/medium/short keys.');
+		}
+
+		return { timeframesArray, temporalityMap };
+	}
+
+	/**
+	 * Get context depth based on timeframe granularity
+	 * Uses time-based logic instead of hardcoded values
+	 */
 	_getContextDepth(timeframe) {
 		const tf = timeframe.toLowerCase();
-		if (tf === '1d' || tf === '1w' || tf === '1m') return { level: 'light', purpose: 'macro trend direction' };
-		if (tf === '4h') return { level: 'medium', purpose: 'structure and trend phase' };
+
+		// Calculate timeframe in minutes for comparison
+		const timeframeMinutes = this._getTimeframeInMinutes(tf);
+
+		// Light context: Daily and above (>= 1440 minutes)
+		if (timeframeMinutes >= 1440) {
+			return { level: 'light', purpose: 'macro trend direction' };
+		}
+
+		// Medium context: 4h to less than daily (240-1439 minutes)
+		if (timeframeMinutes >= 240) {
+			return { level: 'medium', purpose: 'structure and trend phase' };
+		}
+
+		// Full context: Hourly and below (< 240 minutes)
 		return { level: 'full', purpose: 'precise entry/exit timing' };
 	}
 
-	_sortTimeframes(timeframes) {
-		const order = { '1m': 7, '1w': 6, '1d': 5, '4h': 4, '1h': 3, '30m': 2, '15m': 1, '5m': 0 };
-		return [...timeframes].sort((a, b) => (order[b] || 0) - (order[a] || 0));
+	/**
+	 * Convert timeframe to minutes for comparison
+	 */
+	_getTimeframeInMinutes(timeframe) {
+		const tf = timeframe.toLowerCase();
+		const match = tf.match(/^(\d+)([mhdw])$/);
+
+		if (!match) return 60; // Default to 1h if invalid format
+
+		const value = parseInt(match[1]);
+		const unit = match[2];
+
+		switch (unit) {
+			case 'm': return value;           // minutes
+			case 'h': return value * 60;      // hours to minutes
+			case 'd': return value * 1440;    // days to minutes
+			case 'w': return value * 10080;   // weeks to minutes
+			default: return 60;
+		}
 	}
 
+	/**
+	 * Sort timeframes by duration (longest to shortest)
+	 * Uses time-based calculation instead of hardcoded values
+	 */
+	_sortTimeframes(timeframes) {
+		return [...timeframes].sort((a, b) => {
+			const minutesA = this._getTimeframeInMinutes(a);
+			const minutesB = this._getTimeframeInMinutes(b);
+			return minutesB - minutesA; // Descending order (longest first)
+		});
+	}
+
+	/**
+	 * Get the next higher timeframe from available timeframes
+	 * Uses duration calculation instead of hardcoded order
+	 */
 	_getHigherTimeframe(currentTF, availableTFs) {
-		const order = ['5m', '15m', '30m', '1h', '4h', '1d', '1w', '1m'];
-		const currentIndex = order.indexOf(currentTF);
-		if (currentIndex === -1) return null;
-		for (let i = currentIndex + 1; i < order.length; i++) if (availableTFs.includes(order[i])) return order[i];
-		return null;
+		const currentMinutes = this._getTimeframeInMinutes(currentTF);
+
+		// Find all timeframes that are larger than current
+		const higherTFs = availableTFs
+			.filter(tf => this._getTimeframeInMinutes(tf) > currentMinutes)
+			.sort((a, b) => this._getTimeframeInMinutes(a) - this._getTimeframeInMinutes(b));
+
+		// Return the smallest timeframe that's still higher than current
+		return higherTFs.length > 0 ? higherTFs[0] : null;
 	}
 
 	_enrichRegimeData(regimeData, timeframe) {

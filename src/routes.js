@@ -298,7 +298,7 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/context/enriched',
 		asyncHandler(async (req) => {
-			const { symbol, timeframes, count, analysisDate } = req.query;
+			const { symbol, long, medium, short, count, analysisDate } = req.query;
 			logger.info(`GET /api/v1/context/enriched - Unified enriched context${analysisDate ? ` at ${analysisDate}` : ''}`);
 
 			if (!symbol) {
@@ -307,7 +307,19 @@ export function registerRoutes(parameters) {
 				throw error;
 			}
 
-			const tfArray = timeframes ? timeframes.split(',').map((tf) => tf.trim()) : ['1h'];
+			// Build timeframes object from query parameters
+			const timeframesObj = {};
+			if (long) timeframesObj.long = long;
+			if (medium) timeframesObj.medium = medium;
+			if (short) timeframesObj.short = short;
+
+			// Validate at least one timeframe is provided
+			if (Object.keys(timeframesObj).length === 0) {
+				const error = new Error('At least one timeframe (long, medium, or short) is required. Example: ?long=1w&medium=1d&short=1h');
+				error.statusCode = 400;
+				throw error;
+			}
+
 			const barCount = count ? parseInt(count, 10) : 200;
 
 			if (isNaN(barCount) || barCount < 50 || barCount > 500) {
@@ -318,7 +330,7 @@ export function registerRoutes(parameters) {
 
 			return await marketAnalysisService.generateEnrichedContext({
 				symbol,
-				timeframes: tfArray,
+				timeframes: timeframesObj,
 				count: barCount,
 				analysisDate,
 			});
@@ -328,7 +340,7 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/context/mtf-quick',
 		asyncHandler(async (req) => {
-			const { symbol, timeframes } = req.query;
+			const { symbol, long, medium, short } = req.query;
 			logger.info('GET /api/v1/context/mtf-quick - Quick multi-timeframe check');
 
 			if (!symbol) {
@@ -337,17 +349,23 @@ export function registerRoutes(parameters) {
 				throw error;
 			}
 
-			const tfArray = timeframes ? timeframes.split(',').map((tf) => tf.trim()) : ['1d', '4h', '1h'];
+			// Build timeframes object from query parameters
+			const timeframesObj = {};
+			if (long) timeframesObj.long = long;
+			if (medium) timeframesObj.medium = medium;
+			if (short) timeframesObj.short = short;
 
-			if (tfArray.length < 2 || tfArray.length > 5) {
-				const error = new Error('Provide between 2 and 5 timeframes');
+			// Validate at least 2 timeframes provided
+			const tfCount = Object.keys(timeframesObj).length;
+			if (tfCount < 2) {
+				const error = new Error('At least 2 timeframes required for multi-timeframe analysis. Example: ?long=1w&medium=1d&short=1h');
 				error.statusCode = 400;
 				throw error;
 			}
 
 			return await marketAnalysisService.quickMultiTimeframeCheck({
 				symbol,
-				timeframes: tfArray,
+				timeframes: timeframesObj,
 			});
 		})
 	);

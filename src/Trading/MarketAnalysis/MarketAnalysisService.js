@@ -201,6 +201,40 @@ export class MarketAnalysisService {
 			analysisDate: null,
 		});
 
+		// Extract regime info from temporality-based timeframes
+		const regimes = [];
+		const tfData = marketAnalysis.statistical_context.timeframes;
+
+		if (tfData.long) {
+			regimes.push({
+				temporality: 'long',
+				timeframe: tfData.long.timeframe,
+				type: tfData.long.regime?.type,
+				confidence: tfData.long.regime?.confidence,
+				interpretation: tfData.long.regime?.interpretation,
+			});
+		}
+
+		if (tfData.medium) {
+			regimes.push({
+				temporality: 'medium',
+				timeframe: tfData.medium.timeframe,
+				type: tfData.medium.regime?.type,
+				confidence: tfData.medium.regime?.confidence,
+				interpretation: tfData.medium.regime?.interpretation,
+			});
+		}
+
+		if (tfData.short) {
+			regimes.push({
+				temporality: 'short',
+				timeframe: tfData.short.timeframe,
+				type: tfData.short.regime?.type,
+				confidence: tfData.short.regime?.confidence,
+				interpretation: tfData.short.regime?.interpretation,
+			});
+		}
+
 		// Return simplified response
 		return {
 			symbol,
@@ -213,12 +247,7 @@ export class MarketAnalysisService {
 				conflicts: marketAnalysis.multi_timeframe_alignment.conflicts.length,
 				recommendation: marketAnalysis.multi_timeframe_alignment.recommendation.action,
 			},
-			regimes: marketAnalysis.statistical_context.timeframes.map(ctx => ({
-				timeframe: ctx.timeframe,
-				type: ctx.regime?.type,
-				confidence: ctx.regime?.confidence,
-				interpretation: ctx.regime?.interpretation,
-			})),
+			regimes,
 		};
 	}
 }

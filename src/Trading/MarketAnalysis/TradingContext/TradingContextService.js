@@ -29,14 +29,22 @@ export class TradingContextService {
 		const { statistical_context, multi_timeframe_alignment: mtfAlignment } = marketAnalysis;
 		const { timeframes, metadata } = statistical_context;
 
-		// Get timeframe data from array
-		const h1 = timeframes.find(tf => tf.timeframe === '1h') || {};
-		const h4 = timeframes.find(tf => tf.timeframe === '4h') || {};
-		const d1 = timeframes.find(tf => tf.timeframe === '1d') || {};
+		// Get timeframe data by temporality (no hardcoded timeframes)
+		const shortTF = timeframes.short || {};
+		const mediumTF = timeframes.medium || {};
+		const longTF = timeframes.long || {};
 
-		// Extract current price from the lowest timeframe available
-		const sortedTFs = this._sortTimeframes(timeframes.map(tf => tf.timeframe));
-		const currentPrice = timeframes.find(tf => tf.timeframe === sortedTFs[sortedTFs.length - 1])?.price_action?.current;
+		// Extract current price from the shortest available timeframe (most granular)
+		let currentPrice = null;
+
+		// Prioritize short > medium > long for current price
+		if (shortTF?.price_action?.current) {
+			currentPrice = shortTF.price_action.current;
+		} else if (mediumTF?.price_action?.current) {
+			currentPrice = mediumTF.price_action.current;
+		} else if (longTF?.price_action?.current) {
+			currentPrice = longTF.price_action.current;
+		}
 
 		if (!currentPrice)
 			throw new Error(`Unable to extract current price from timeframe data`);
@@ -44,19 +52,19 @@ export class TradingContextService {
 		const symbol = metadata.symbol;
 
 		// Determine current market phase
-		const marketPhase = this._determineMarketPhase(h1, h4, d1, mtfAlignment);
+		const marketPhase = this._determineMarketPhase(shortTF, mediumTF, longTF, mtfAlignment);
 
 		// Generate scenarios
-		const scenarios = this._generateScenarios(h1, h4, d1, currentPrice, mtfAlignment);
+		const scenarios = this._generateScenarios(shortTF, mediumTF, longTF, currentPrice, mtfAlignment);
 
 		// Generate entry strategies
-		const entryStrategies = this._generateEntryStrategies(scenarios, h1, h4, currentPrice);
+		const entryStrategies = this._generateEntryStrategies(scenarios, shortTF, mediumTF, currentPrice);
 
 		// Assess risk factors
-		const riskFactors = this._assessRiskFactors(h1, h4, d1, mtfAlignment);
+		const riskFactors = this._assessRiskFactors(shortTF, mediumTF, longTF, mtfAlignment);
 
 		// Calculate trade quality score
-		const tradeQuality = this._calculateTradeQuality(h1, h4, d1, mtfAlignment, scenarios, currentPrice);
+		const tradeQuality = this._calculateTradeQuality(shortTF, mediumTF, longTF, mtfAlignment, scenarios, currentPrice);
 
 		// Generate recommendation
 		const recommendation = this._generateRecommendation(scenarios, tradeQuality, mtfAlignment);
@@ -76,38 +84,41 @@ export class TradingContextService {
 
 	/**
 	 * Determine current market phase with direction awareness
+	 * @param {Object} shortTF - Short timeframe data
+	 * @param {Object} mediumTF - Medium timeframe data
+	 * @param {Object} longTF - Long timeframe data
 	 */
-	_determineMarketPhase(h1, h4, d1, mtfAlignment) {
-		const h1Regime = h1.regime?.type || '';
-		const h4Regime = h4.regime?.type || '';
-		const d1Regime = d1.regime?.type || '';
+	_determineMarketPhase(shortTF, mediumTF, longTF, mtfAlignment) {
+		const shortRegime = shortTF.regime?.type || '';
+		const mediumRegime = mediumTF.regime?.type || '';
+		const longRegime = longTF.regime?.type || '';
 		const dominantDirection = mtfAlignment.dominant_direction || 'neutral';
 
 		// Trending phases
-		if (h4Regime.includes('trending') && d1Regime.includes('trending')) {
+		if (mediumRegime.includes('trending') && longRegime.includes('trending')) {
 			const direction = dominantDirection === 'bullish' ? 'uptrend' :
 			                  dominantDirection === 'bearish' ? 'downtrend' : 'trend';
 
-			if (h1Regime.includes('ranging'))
+			if (shortRegime.includes('ranging'))
 				return `consolidation within ${direction}`;
 
 			return `strong ${direction}`;
 		}
 
 		// Ranging phases
-		if (h1Regime.includes('ranging') && h4Regime.includes('ranging'))
+		if (shortRegime.includes('ranging') && mediumRegime.includes('ranging'))
 			return 'consolidation';
 
 		// Breakout phases
-		if (h1Regime.includes('breakout') || h4Regime.includes('breakout')) {
-			const breakoutDir = h1Regime.includes('bullish') || h4Regime.includes('bullish') ? 'bullish' :
-			                    h1Regime.includes('bearish') || h4Regime.includes('bearish') ? 'bearish' : '';
+		if (shortRegime.includes('breakout') || mediumRegime.includes('breakout')) {
+			const breakoutDir = shortRegime.includes('bullish') || mediumRegime.includes('bullish') ? 'bullish' :
+			                    shortRegime.includes('bearish') || mediumRegime.includes('bearish') ? 'bearish' : '';
 			return breakoutDir ? `${breakoutDir} breakout phase` : 'breakout phase';
 		}
 
 		// Transition
-		if ((h1Regime.includes('trending') && h4Regime.includes('ranging')) ||
-		    (h1Regime.includes('ranging') && h4Regime.includes('trending')))
+		if ((shortRegime.includes('trending') && mediumRegime.includes('ranging')) ||
+		    (shortRegime.includes('ranging') && mediumRegime.includes('trending')))
 			return 'transition phase';
 
 		return 'mixed conditions';
@@ -116,11 +127,11 @@ export class TradingContextService {
 	/**
 	 * Generate trading scenarios
 	 */
-	_generateScenarios(h1, h4, d1, currentPrice, mtfAlignment) {
+	_generateScenarios(shortTF, mediumTF, longTF, currentPrice, mtfAlignment) {
 		// Generate scenarios with raw scores
-		const bullish = this._generateBullishScenario(h1, h4, d1, currentPrice, mtfAlignment);
-		const bearish = this._generateBearishScenario(h1, h4, d1, currentPrice, mtfAlignment);
-		const neutral = this._generateNeutralScenario(h1, currentPrice, mtfAlignment);
+		const bullish = this._generateBullishScenario(shortTF, mediumTF, longTF, currentPrice, mtfAlignment);
+		const bearish = this._generateBearishScenario(shortTF, mediumTF, longTF, currentPrice, mtfAlignment);
+		const neutral = this._generateNeutralScenario(shortTF, currentPrice, mtfAlignment);
 
 		// Normalize probabilities so they sum to 1.0
 		const totalScore = bullish.rawScore + bearish.rawScore + neutral.rawScore;
@@ -150,29 +161,29 @@ export class TradingContextService {
 	/**
 	 * Generate bullish scenario
 	 */
-	_generateBullishScenario(h1, h4, d1, currentPrice, mtfAlignment) {
+	_generateBullishScenario(shortTF, mediumTF, longTF, currentPrice, mtfAlignment) {
 		const isBullishAligned = mtfAlignment.dominant_direction === 'bullish';
 
 		// Determine trigger
 		let trigger = 'break above resistance';
-		if (h1.price_action?.breakout_levels?.upside)
-			trigger = `H1 break above ${h1.price_action.breakout_levels.upside} with volume`;
+		if (shortTF.price_action?.breakout_levels?.upside)
+			trigger = `Short timeframe break above ${shortTF.price_action.breakout_levels.upside} with volume`;
 
 		// Calculate raw score (not probability yet - will be normalized)
 		let rawScore = 40; // Base score
 		if (isBullishAligned) rawScore += 20;
 		if (mtfAlignment.alignment_score > 0.7) rawScore += 10;
-		if (h4.regime?.type?.includes('trending_bullish')) rawScore += 10;
-		if (h1.micro_patterns?.some(p => p.pattern === 'bull flag')) rawScore += 10;
+		if (mediumTF.regime?.type?.includes('trending_bullish')) rawScore += 10;
+		if (shortTF.micro_patterns?.some(p => p.pattern === 'bull flag')) rawScore += 10;
 
 		// Determine targets
-		const targets = this._calculateBullishTargets(h1, h4, d1, currentPrice);
+		const targets = this._calculateBullishTargets(shortTF, mediumTF, longTF, currentPrice);
 
 		// Rationale
-		const rationale = this._buildBullishRationale(h1, h4, d1, mtfAlignment);
+		const rationale = this._buildBullishRationale(shortTF, mediumTF, longTF, mtfAlignment);
 
 		// Stop loss
-		const stopLoss = this._calculateBullishStop(h1, h4, currentPrice);
+		const stopLoss = this._calculateBullishStop(shortTF, mediumTF, currentPrice);
 
 		return {
 			trigger,
@@ -186,22 +197,22 @@ export class TradingContextService {
 	/**
 	 * Generate bearish scenario
 	 */
-	_generateBearishScenario(h1, h4, d1, currentPrice, mtfAlignment) {
+	_generateBearishScenario(shortTF, mediumTF, longTF, currentPrice, mtfAlignment) {
 		const isBearishAligned = mtfAlignment.dominant_direction === 'bearish';
 
 		let trigger = 'break below support';
-		if (h1.price_action?.breakout_levels?.downside)
-			trigger = `H1 break below ${h1.price_action.breakout_levels.downside} with volume`;
+		if (shortTF.price_action?.breakout_levels?.downside)
+			trigger = `Short timeframe break below ${shortTF.price_action.breakout_levels.downside} with volume`;
 
 		// Calculate raw score (not probability yet - will be normalized)
 		let rawScore = 30; // Base (usually lower if not in downtrend)
 		if (isBearishAligned) rawScore += 20;
 		if (mtfAlignment.alignment_score > 0.7 && isBearishAligned) rawScore += 10;
-		if (h4.regime?.type?.includes('trending_bearish')) rawScore += 10;
+		if (mediumTF.regime?.type?.includes('trending_bearish')) rawScore += 10;
 
-		const targets = this._calculateBearishTargets(h1, h4, currentPrice);
-		const rationale = this._buildBearishRationale(h1, h4, mtfAlignment);
-		const stopLoss = this._calculateBearishStop(h1, h4, currentPrice);
+		const targets = this._calculateBearishTargets(shortTF, mediumTF, currentPrice);
+		const rationale = this._buildBearishRationale(shortTF, mediumTF, mtfAlignment);
+		const stopLoss = this._calculateBearishStop(shortTF, mediumTF, currentPrice);
 
 		// Context for counter-trend
 		let context = null;
@@ -221,8 +232,8 @@ export class TradingContextService {
 	/**
 	 * Generate neutral scenario
 	 */
-	_generateNeutralScenario(h1, currentPrice, mtfAlignment) {
-		const breakoutLevels = h1.price_action?.breakout_levels;
+	_generateNeutralScenario(shortTF, currentPrice, mtfAlignment) {
+		const breakoutLevels = shortTF.price_action?.breakout_levels;
 
 		// Calculate raw score based on how neutral/ranging the market is
 		let rawScore = 20; // Base score for neutral scenario
@@ -250,35 +261,35 @@ export class TradingContextService {
 	/**
 	 * Calculate bullish targets
 	 */
-	_calculateBullishTargets(h1, h4, d1, currentPrice) {
+	_calculateBullishTargets(shortTF, mediumTF, longTF, currentPrice) {
 		const targets = [];
 
-		// Target 1: Near resistance from H4
-		if (h4.support_resistance?.resistance_levels?.[0]) {
-			const level = h4.support_resistance.resistance_levels[0].level;
+		// Target 1: Near resistance from Medium timeframe
+		if (mediumTF.support_resistance?.resistance_levels?.[0]) {
+			const level = mediumTF.support_resistance.resistance_levels[0].level;
 			targets.push({
 				price: level,
-				basis: h4.support_resistance.resistance_levels[0].type,
+				basis: mediumTF.support_resistance.resistance_levels[0].type,
 				probability: 0.80
 			});
 		}
 
 		// Target 2: Pattern projection or next major level
-		if (h1.micro_patterns?.length > 0) {
-			const pattern = h1.micro_patterns[0];
-			if (pattern.target_if_breaks) 
+		if (shortTF.micro_patterns?.length > 0) {
+			const pattern = shortTF.micro_patterns[0];
+			if (pattern.target_if_breaks)
 				targets.push({
 					price: pattern.target_if_breaks,
 					basis: `${pattern.pattern} projection`,
 					probability: 0.60
 				});
-			
+
 		}
 
 		// Target 3: Major resistance
-		if (h4.support_resistance?.resistance_levels?.[1]) 
+		if (mediumTF.support_resistance?.resistance_levels?.[1])
 			targets.push({
-				price: h4.support_resistance.resistance_levels[1].level,
+				price: mediumTF.support_resistance.resistance_levels[1].level,
 				basis: 'major resistance',
 				probability: 0.40
 			});
@@ -289,21 +300,21 @@ export class TradingContextService {
 	/**
 	 * Calculate bearish targets
 	 */
-	_calculateBearishTargets(h1, h4, currentPrice) {
+	_calculateBearishTargets(shortTF, mediumTF, currentPrice) {
 		const targets = [];
 
-		// Target 1: Near support from H4
-		if (h4.support_resistance?.support_levels?.[0]) 
+		// Target 1: Near support from Medium timeframe
+		if (mediumTF.support_resistance?.support_levels?.[0])
 			targets.push({
-				price: h4.support_resistance.support_levels[0].level,
-				basis: h4.support_resistance.support_levels[0].type,
+				price: mediumTF.support_resistance.support_levels[0].level,
+				basis: mediumTF.support_resistance.support_levels[0].type,
 				probability: 0.70
 			});
 
 		// Target 2: Major support
-		if (h4.support_resistance?.support_levels?.[1]) 
+		if (mediumTF.support_resistance?.support_levels?.[1])
 			targets.push({
-				price: h4.support_resistance.support_levels[1].level,
+				price: mediumTF.support_resistance.support_levels[1].level,
 				basis: 'major support',
 				probability: 0.45
 			});
@@ -314,19 +325,19 @@ export class TradingContextService {
 	/**
 	 * Build bullish rationale
 	 */
-	_buildBullishRationale(h1, h4, d1, mtfAlignment) {
+	_buildBullishRationale(shortTF, mediumTF, longTF, mtfAlignment) {
 		const reasons = [];
 
-		if (mtfAlignment.dominant_direction === 'bullish') 
+		if (mtfAlignment.dominant_direction === 'bullish')
 			reasons.push('HTF trend bullish');
-		
-		if (h1.micro_patterns?.some(p => p.pattern.includes('bull'))) 
-			reasons.push(h1.micro_patterns[0].pattern);
-		
-		if (h4.volatility_indicators?.bollinger_bands?.squeeze_detected) 
+
+		if (shortTF.micro_patterns?.some(p => p.pattern.includes('bull')))
+			reasons.push(shortTF.micro_patterns[0].pattern);
+
+		if (mediumTF.volatility_indicators?.bollinger_bands?.squeeze_detected)
 			reasons.push('BB squeeze');
-		
-		if (h4.volume_indicators?.obv?.interpretation?.includes('supporting')) 
+
+		if (mediumTF.volume_indicators?.obv?.interpretation?.includes('supporting'))
 			reasons.push('volume confirmation');
 
 		return reasons.join(' + ');
@@ -335,13 +346,13 @@ export class TradingContextService {
 	/**
 	 * Build bearish rationale
 	 */
-	_buildBearishRationale(h1, h4, mtfAlignment) {
+	_buildBearishRationale(shortTF, mediumTF, mtfAlignment) {
 		const reasons = [];
 
-		if (mtfAlignment.dominant_direction === 'bearish') 
+		if (mtfAlignment.dominant_direction === 'bearish')
 			reasons.push('HTF trend bearish');
-		
-		if (h1.price_action?.bar_type?.includes('bearish')) 
+
+		if (shortTF.price_action?.bar_type?.includes('bearish'))
 			reasons.push('bearish price action');
 
 		return reasons.length > 0 ? reasons.join(' + ') : 'counter-trend setup';
@@ -350,14 +361,14 @@ export class TradingContextService {
 	/**
 	 * Calculate bullish stop
 	 */
-	_calculateBullishStop(h1, h4, currentPrice) {
+	_calculateBullishStop(shortTF, mediumTF, currentPrice) {
 		// Use recent support or pattern invalidation
 		let stopPrice = currentPrice * 0.97; // Default 3% stop
 
-		if (h1.micro_patterns?.length > 0 && h1.micro_patterns[0].invalidation) 
-			stopPrice = h1.micro_patterns[0].invalidation;
-		 else if (h4.moving_averages?.ema?.ema26) 
-			stopPrice = h4.moving_averages.ema.ema26;
+		if (shortTF.micro_patterns?.length > 0 && shortTF.micro_patterns[0].invalidation)
+			stopPrice = shortTF.micro_patterns[0].invalidation;
+		 else if (mediumTF.moving_averages?.ema?.ema26)
+			stopPrice = mediumTF.moving_averages.ema.ema26;
 
 		return {
 			price: round(stopPrice, 0),
@@ -368,11 +379,11 @@ export class TradingContextService {
 	/**
 	 * Calculate bearish stop
 	 */
-	_calculateBearishStop(h1, h4, currentPrice) {
+	_calculateBearishStop(shortTF, mediumTF, currentPrice) {
 		let stopPrice = currentPrice * 1.03; // Default 3% stop
 
-		if (h4.moving_averages?.ema?.ema26) 
-			stopPrice = h4.moving_averages.ema.ema26;
+		if (mediumTF.moving_averages?.ema?.ema26)
+			stopPrice = mediumTF.moving_averages.ema.ema26;
 
 		return {
 			price: round(stopPrice, 0),
@@ -383,20 +394,20 @@ export class TradingContextService {
 	/**
 	 * Generate entry strategies
 	 */
-	_generateEntryStrategies(scenarios, h1, h4, currentPrice) {
+	_generateEntryStrategies(scenarios, shortTF, mediumTF, currentPrice) {
 		const strategies = {};
 
 		// Primary strategy (highest probability scenario)
 		const bullishProb = scenarios.bullish_scenario?.probability || 0;
 		const bearishProb = scenarios.bearish_scenario?.probability || 0;
 
-		if (bullishProb > bearishProb) 
+		if (bullishProb > bearishProb)
 			strategies.primary = this._buildBreakoutStrategy('bullish', scenarios.bullish_scenario, currentPrice);
-		 else 
+		 else
 			strategies.primary = this._buildBreakoutStrategy('bearish', scenarios.bearish_scenario, currentPrice);
 
 		// Alternative strategy
-		strategies.alternative = this._buildRetestStrategy(h1, h4, currentPrice);
+		strategies.alternative = this._buildRetestStrategy(shortTF, mediumTF, currentPrice);
 
 		return strategies;
 	}
@@ -434,9 +445,9 @@ export class TradingContextService {
 	/**
 	 * Build retest strategy
 	 */
-	_buildRetestStrategy(h1, h4, currentPrice) {
-		const supportLevels = h4.support_resistance?.support_levels || [];
-		
+	_buildRetestStrategy(shortTF, mediumTF, currentPrice) {
+		const supportLevels = mediumTF.support_resistance?.support_levels || [];
+
 		if (supportLevels.length === 0) return null;
 
 		const support = supportLevels[0];
@@ -465,11 +476,11 @@ export class TradingContextService {
 	/**
 	 * Assess risk factors
 	 */
-	_assessRiskFactors(h1, h4, d1, mtfAlignment) {
+	_assessRiskFactors(shortTF, mediumTF, longTF, mtfAlignment) {
 		const risks = [];
 
 		// MTF conflicts
-		if (mtfAlignment.conflicts && mtfAlignment.conflicts.length > 0) 
+		if (mtfAlignment.conflicts && mtfAlignment.conflicts.length > 0)
 			risks.push({
 				factor: 'MTF conflicts',
 				impact: mtfAlignment.conflicts[0].severity || 'medium',
@@ -477,15 +488,15 @@ export class TradingContextService {
 			});
 
 		// Consolidation duration
-		if (h1.regime?.type?.includes('ranging')) 
+		if (shortTF.regime?.type?.includes('ranging'))
 			risks.push({
-				factor: 'H1 consolidation',
+				factor: 'Short timeframe consolidation',
 				impact: 'low',
 				mitigation: 'Pattern typically resolves quickly'
 			});
 
 		// Divergences
-		if (h1.momentum_indicators?.rsi?.divergence?.includes('divergence')) 
+		if (shortTF.momentum_indicators?.rsi?.divergence?.includes('divergence'))
 			risks.push({
 				factor: 'RSI divergence',
 				impact: 'medium',
@@ -498,7 +509,7 @@ export class TradingContextService {
 	/**
 	 * Calculate trade quality score
 	 */
-	_calculateTradeQuality(h1, h4, d1, mtfAlignment, scenarios, currentPrice) {
+	_calculateTradeQuality(shortTF, mediumTF, longTF, mtfAlignment, scenarios, currentPrice) {
 		const scores = {};
 
 		// Trend alignment (0-1)
@@ -506,8 +517,8 @@ export class TradingContextService {
 
 		// Momentum (0-1)
 		let momentumScore = 0.5;
-		if (h4.momentum_indicators?.rsi?.value) {
-			const rsi = h4.momentum_indicators.rsi.value;
+		if (mediumTF.momentum_indicators?.rsi?.value) {
+			const rsi = mediumTF.momentum_indicators.rsi.value;
 			if (rsi > 50 && rsi < 70) momentumScore = 0.80;
 			else if (rsi > 40 && rsi < 80) momentumScore = 0.65;
 			else momentumScore = 0.40;
@@ -516,18 +527,18 @@ export class TradingContextService {
 
 		// Volume (0-1)
 		let volumeScore = 0.5;
-		if (h4.volume_indicators?.volume?.interpretation?.includes('good')) 
+		if (mediumTF.volume_indicators?.volume?.interpretation?.includes('good'))
 			volumeScore = 0.75;
-		 else if (h4.volume_indicators?.volume?.interpretation?.includes('low')) 
+		 else if (mediumTF.volume_indicators?.volume?.interpretation?.includes('low'))
 			volumeScore = 0.40;
-		
+
 		scores.volume = volumeScore;
 
 		// Pattern (0-1)
 		let patternScore = 0.5;
-		if (h1.micro_patterns && h1.micro_patterns.length > 0) 
-			patternScore = h1.micro_patterns[0].confidence || 0.70;
-		
+		if (shortTF.micro_patterns && shortTF.micro_patterns.length > 0)
+			patternScore = shortTF.micro_patterns[0].confidence || 0.70;
+
 		scores.pattern = patternScore;
 
 		// Risk/Reward (0-1)
