@@ -15,10 +15,10 @@ const __dirname = path.dirname(__filename);
  * - Optimized queries with indexes
  */
 export class StorageService {
-	static #instance = null;
-	#db = null;
-	#preparedStatements = null;
-	#dbPath = null;
+	static _instance = null;
+	_db = null;
+	_preparedStatements = null;
+	_dbPath = null;
 
 	/**
 	 * Create a StorageService instance (Singleton)
@@ -27,7 +27,7 @@ export class StorageService {
 	 * @returns {StorageService} The singleton instance
 	 */
 	constructor(parameters = {}) {
-		if (StorageService.#instance) return StorageService.#instance;
+		if (StorageService._instance) return StorageService._instance;
 
 		this.logger = parameters.logger || null;
 		if (!this.logger) throw new Error('StorageService requires a logger instance in options');
@@ -38,43 +38,43 @@ export class StorageService {
 			this.codeRequestLifeTime = 10; // Default to 10 minutes
 		}
 
-		this.#dbPath = parameters.dbPath || null;
-		StorageService.#instance = this;
-		this.#initialize();
+		this._dbPath = parameters.dbPath || null;
+		StorageService._instance = this;
+		this._initialize();
 	}
 
 	/**
 	 * Initialize the database and tables
 	 * @private
 	 */
-	#initialize() {
+	_initialize() {
 		// Ensure data directory exists
 		const dataDir = path.join(__dirname, '../../data');
 		if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 		// Open database
-		if (!this.#dbPath) this.#dbPath = path.join(dataDir, 'oauth-storage.db');
+		if (!this._dbPath) this._dbPath = path.join(dataDir, 'oauth-storage.db');
 
-		this.#db = new Database(this.#dbPath);
+		this._db = new Database(this._dbPath);
 
 		// Enable WAL mode for better concurrency
-		this.#db.pragma('journal_mode = WAL');
+		this._db.pragma('journal_mode = WAL');
 
 		// Create tables
-		this.#createTables();
+		this._createTables();
 
 		// Initialize prepared statements
-		this.#initializePreparedStatements();
+		this._initializePreparedStatements();
 
-		this.logger.info('StorageService initialized with database', { path: this.#dbPath });
+		this.logger.info('StorageService initialized with database', { path: this._dbPath });
 	}
 
 	/**
 	 * Create database tables
 	 * @private
 	 */
-	#createTables() {
-		this.#db.exec(`
+	_createTables() {
+		this._db.exec(`
 			CREATE TABLE IF NOT EXISTS clients (
 				client_id TEXT PRIMARY KEY,
 				client_secret TEXT NOT NULL,
@@ -95,9 +95,9 @@ export class StorageService {
 	 * Initialize prepared statements for better performance
 	 * @private
 	 */
-	#initializePreparedStatements() {
-		this.#preparedStatements = {
-			setClient: this.#db.prepare(`
+	_initializePreparedStatements() {
+		this._preparedStatements = {
+			setClient: this._db.prepare(`
 				INSERT INTO clients (
 					client_id,
 					client_secret,
@@ -120,7 +120,7 @@ export class StorageService {
 					client_expiration_date = excluded.client_expiration_date,
 					scope = excluded.scope
 			`),
-			getClientById: this.#db.prepare(`
+			getClientById: this._db.prepare(`
 				SELECT
 					client_secret,
 					client_name,
@@ -133,7 +133,7 @@ export class StorageService {
 				FROM clients
 				WHERE client_id = ? and client_expiration_date IS NOT NULL AND client_expiration_date > ?
 			`),
-			getClientByCode: this.#db.prepare(`
+			getClientByCode: this._db.prepare(`
 				SELECT
 					client_id,
 					client_secret,
@@ -146,10 +146,10 @@ export class StorageService {
 				FROM clients
 				WHERE code = ? and client_expiration_date IS NOT NULL AND client_expiration_date > ?
 			`),
-			deleteClient: this.#db.prepare(`
+			deleteClient: this._db.prepare(`
 				DELETE FROM clients WHERE client_id = ?
 			`),
-			cleanExpired: this.#db.prepare(`
+			cleanExpired: this._db.prepare(`
 				DELETE FROM clients
 				WHERE client_expiration_date IS NOT NULL AND client_expiration_date < ?
 			`),
@@ -160,10 +160,10 @@ export class StorageService {
 	 * Clean expired tokens from database
 	 * @private
 	 */
-	#cleanExpired() {
+	_cleanExpired() {
 		try {
 			const now = Date.now();
-			const result = this.#preparedStatements.cleanExpired.run(now);
+			const result = this._preparedStatements.cleanExpired.run(now);
 
 			if (result.changes > 0) this.logger.info('Cleaned expired clients', { count: result.changes });
 		} catch (error) {
@@ -177,7 +177,7 @@ export class StorageService {
 	 * @param {Object} row - Database row
 	 * @returns {Object|undefined} Parsed client data or undefined
 	 */
-	#parseClientRow(row) {
+	_parseClientRow(row) {
 		if (!row) return undefined;
 
 		return {
@@ -199,7 +199,7 @@ export class StorageService {
 	 * @param {Object} data - Client data
 	 * @throws {Error} If validation fails
 	 */
-	#validateClientData(clientId, data) {
+	_validateClientData(clientId, data) {
 		if (!clientId || typeof clientId !== 'string') throw new Error('Invalid client_id: must be a non-empty string');
 
 		if (data.client_redirect_uris) {
@@ -216,8 +216,8 @@ export class StorageService {
 	 * @returns {StorageService} The singleton instance
 	 */
 	static getInstance(options) {
-		if (!StorageService.#instance) StorageService.#instance = new StorageService(options);
-		return StorageService.#instance;
+		if (!StorageService._instance) StorageService._instance = new StorageService(options);
+		return StorageService._instance;
 	}
 
 	/**
@@ -229,7 +229,7 @@ export class StorageService {
 	setClient(clientId, data = {}) {
 		try {
 			// Validate input
-			this.#validateClientData(clientId, data);
+			this._validateClientData(clientId, data);
 
 			const now = Date.now();
 			const expiresAt = now + this.codeRequestLifeTime;
@@ -237,7 +237,7 @@ export class StorageService {
 			// Serialize redirect URIs as JSON array
 			const redirectUris = Array.isArray(data.client_redirect_uris) ? JSON.stringify(data.client_redirect_uris) : data.client_redirect_uris || '[]';
 
-			this.#preparedStatements.setClient.run(
+			this._preparedStatements.setClient.run(
 				clientId,
 				data.client_secret || '',
 				data.client_name || '',
@@ -262,8 +262,8 @@ export class StorageService {
 	getClientById(clientId) {
 		try {
 			const now = Date.now();
-			const row = this.#preparedStatements.getClientById.get(clientId, now);
-			return this.#parseClientRow(row);
+			const row = this._preparedStatements.getClientById.get(clientId, now);
+			return this._parseClientRow(row);
 		} catch (error) {
 			this.logger.error('Error getting client by ID', { clientId, error: error.message });
 			throw error;
@@ -278,8 +278,8 @@ export class StorageService {
 	getClientByCode(code) {
 		try {
 			const now = Date.now();
-			const row = this.#preparedStatements.getClientByCode.get(code, now);
-			return this.#parseClientRow(row);
+			const row = this._preparedStatements.getClientByCode.get(code, now);
+			return this._parseClientRow(row);
 		} catch (error) {
 			this.logger.error('Error getting client by code', { error: error.message });
 			throw error;
@@ -288,7 +288,7 @@ export class StorageService {
 
 	deleteClient(clientId) {
 		try {
-			this.#preparedStatements.deleteClient.run(clientId);
+			this._preparedStatements.deleteClient.run(clientId);
 		} catch (error) {
 			this.logger.error('Error deleting client', { clientId, error: error.message });
 			throw error;
