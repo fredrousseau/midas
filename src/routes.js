@@ -298,7 +298,7 @@ export function registerRoutes(parameters) {
 	app.get(
 		'/api/v1/context/enriched',
 		asyncHandler(async (req) => {
-			const { symbol, long, medium, short, count, analysisDate } = req.query;
+			const { symbol, long, medium, short, analysisDate } = req.query;
 			logger.info(`GET /api/v1/context/enriched - Unified enriched context${analysisDate ? ` at ${analysisDate}` : ''}`);
 
 			if (!symbol) {
@@ -320,18 +320,9 @@ export function registerRoutes(parameters) {
 				throw error;
 			}
 
-			const barCount = count ? parseInt(count, 10) : 200;
-
-			if (isNaN(barCount) || barCount < 50 || barCount > 500) {
-				const error = new Error('count must be between 50 and 500');
-				error.statusCode = 400;
-				throw error;
-			}
-
 			return await marketAnalysisService.generateEnrichedContext({
 				symbol,
 				timeframes: timeframesObj,
-				count: barCount,
 				analysisDate,
 			});
 		})

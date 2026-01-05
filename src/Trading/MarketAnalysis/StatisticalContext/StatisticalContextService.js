@@ -103,14 +103,14 @@ export class StatisticalContextService {
 
 	/**
 	 * Generate complete statistical context
+	 * Uses adaptive bar counts based on timeframe for optimal performance
 	 * @param {Object} params
 	 * @param {string} params.symbol - Trading symbol
 	 * @param {Object} params.timeframes - Object mapping temporality to timeframe
 	 *                                     Example: { long: '1w', medium: '1d', short: '1h' }
-	 * @param {number} params.count - Number of bars to analyze
 	 * @param {string} params.analysisDate - Optional date for historical analysis
 	 */
-	async generateFullContext({ symbol, timeframes, count = 200, analysisDate }) {
+	async generateFullContext({ symbol, timeframes, analysisDate }) {
 		const startTime = Date.now();
 
 		// Validate and parse timeframes configuration
@@ -129,7 +129,7 @@ export class StatisticalContextService {
 		for (const tf of sortedTFs) {
 			// Strict mode: any error on a timeframe should fail the entire request
 			// This ensures API returns proper error status when timeframe is invalid
-			const tfContext = await this._generateTimeframeContext(symbol, tf, count, higherTFData, analysisDate);
+			const tfContext = await this._generateTimeframeContext(symbol, tf, higherTFData, analysisDate);
 			contexts[tf] = tfContext;
 			higherTFData[tf] = {
 				timeframe: tf,
@@ -162,12 +162,22 @@ export class StatisticalContextService {
 			}
 		}
 
+		// Build bars summary for metadata
+		const barsSummary = {};
+		for (const [tf, data] of Object.entries(contexts)) {
+			barsSummary[tf] = {
+				requested: data.bars_requested,
+				analyzed: data.bars_analyzed
+			};
+		}
+
 		return {
 			metadata: {
 				symbol,
 				timestamp: new Date().toISOString(),
 				analysisDate: analysisDate || null,
-				analysis_window: `${count} bars per timeframe`,
+				analysis_window: 'adaptive (timeframe-based)',
+				bars_per_timeframe: barsSummary,
 				generation_time_ms: Date.now() - startTime,
 				data_quality: this._assessDataQuality(contexts),
 			},
@@ -177,13 +187,34 @@ export class StatisticalContextService {
 	}
 
 	/**
-	 * Generate context for a single timeframe
+	 * Get adaptive OHLCV bar count based on timeframe
+	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
 	 */
-	async _generateTimeframeContext(symbol, timeframe, count, higherTFData, analysisDate) {
+	_getAdaptiveOHLCVCount(timeframe) {
+		const barCounts = {
+			'5m': 300,   // ~1 day of data
+			'15m': 300,  // ~3 days of data
+			'30m': 250,  // ~5 days of data
+			'1h': 250,   // ~10 days of data
+			'4h': 200,   // ~33 days of data
+			'1d': 150,   // ~5 months of data
+			'1w': 100,   // ~2 years of data
+			'1M': 60     // ~5 years of data
+		};
+		return barCounts[timeframe] || 250; // Default fallback
+	}
+
+	/**
+	 * Generate context for a single timeframe
+	 * Uses adaptive bar count based on timeframe
+	 */
+	async _generateTimeframeContext(symbol, timeframe, higherTFData, analysisDate) {
+		const barCount = this._getAdaptiveOHLCVCount(timeframe);
+
 		const ohlcvData = await this.dataProvider.loadOHLCV({
 			symbol,
 			timeframe,
-			count: Math.max(count, 250),
+			count: barCount,
 			analysisDate,
 			useCache: true,
 			detectGaps: false,
@@ -192,10 +223,17 @@ export class StatisticalContextService {
 		if (!ohlcvData || !ohlcvData.bars || ohlcvData.bars.length === 0) throw new Error(`No OHLCV data available for ${symbol} on ${timeframe}`);
 
 		const currentPrice = ohlcvData.bars[ohlcvData.bars.length - 1].close;
-		const regimeData = await this.regimeDetectionService.detectRegime({ symbol, timeframe, count: Math.min(count, 200), analysisDate });
+		const regimeData = await this.regimeDetectionService.detectRegime({ symbol, timeframe, count: barCount, analysisDate });
 		const contextDepth = this._getContextDepth(timeframe);
 
-		const enriched = { timeframe, context_depth: contextDepth.level, purpose: contextDepth.purpose, regime: this._enrichRegimeData(regimeData, timeframe) };
+		const enriched = {
+			timeframe,
+			context_depth: contextDepth.level,
+			purpose: contextDepth.purpose,
+			bars_analyzed: ohlcvData.bars.length,
+			bars_requested: barCount,
+			regime: this._enrichRegimeData(regimeData, timeframe)
+		};
 
 		// Base enrichment for all levels
 		enriched.moving_averages = await this.maEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, currentPrice });

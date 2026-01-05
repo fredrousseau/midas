@@ -32,15 +32,16 @@ export class MarketAnalysisService {
 
 	/**
 	 * Generate full market analysis for a symbol across multiple timeframes
-	 * @param {Object} params - { symbol, timeframes, count, analysisDate }
+	 * Uses adaptive bar counts based on timeframe for optimal performance
+	 * @param {Object} params - { symbol, timeframes, analysisDate }
 	 * @returns {Promise<Object>} - Complete analysis with alignment, conflicts, and recommendations
 	 */
-	async generateMarketAnalysis({ symbol, timeframes, count = 200, analysisDate }) {
+	async generateMarketAnalysis({ symbol, timeframes, analysisDate }) {
 		// Generate statistical context with built-in alignment analysis
+		// Uses adaptive count based on timeframe
 		const statContext = await this.statisticalContextService.generateFullContext({
 			symbol,
 			timeframes,
-			count,
 			analysisDate,
 		});
 
@@ -180,16 +181,16 @@ export class MarketAnalysisService {
 	/**
 	 * Generate enriched statistical context (legacy method name)
 	 * Alias for generateMarketAnalysis for backward compatibility
-	 * @param {Object} params - { symbol, timeframes, count, analysisDate }
+	 * @param {Object} params - { symbol, timeframes, analysisDate }
 	 * @returns {Promise<Object>}
 	 */
-	async generateEnrichedContext({ symbol, timeframes, count = 200, analysisDate }) {
-		return await this.generateMarketAnalysis({ symbol, timeframes, count, analysisDate });
+	async generateEnrichedContext({ symbol, timeframes, analysisDate }) {
+		return await this.generateMarketAnalysis({ symbol, timeframes, analysisDate });
 	}
 
 	/**
 	 * Quick multi-timeframe check for rapid alignment assessment
-	 * Lighter version with fewer bars for faster response
+	 * Uses same adaptive bar counts as full analysis
 	 * @param {Object} params - { symbol, timeframes }
 	 * @returns {Promise<Object>}
 	 */
@@ -197,7 +198,6 @@ export class MarketAnalysisService {
 		const marketAnalysis = await this.generateMarketAnalysis({
 			symbol,
 			timeframes,
-			count: 100, // Reduced for speed
 			analysisDate: null,
 		});
 
