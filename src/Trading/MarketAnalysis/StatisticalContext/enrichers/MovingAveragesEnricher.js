@@ -16,6 +16,25 @@ export class MovingAveragesEnricher {
 	}
 
 	/**
+	 * Get adaptive bar count based on timeframe
+	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
+	 * For EMAs we need extra bars, especially for EMA200
+	 */
+	_getAdaptiveBarCount(timeframe, forEMA200 = false) {
+		const barCounts = {
+			'5m': forEMA200 ? 250 : 200,
+			'15m': forEMA200 ? 250 : 200,
+			'30m': forEMA200 ? 250 : 200,
+			'1h': forEMA200 ? 220 : 150,
+			'4h': forEMA200 ? 220 : 150,
+			'1d': forEMA200 ? 210 : 100,
+			'1w': forEMA200 ? 210 : 60,
+			'1M': forEMA200 ? 210 : 50
+		};
+		return barCounts[timeframe] || (forEMA200 ? 220 : 150); // Default fallback
+	}
+
+	/**
 	 * Enrich moving averages with detailed analysis
 	 * USES EXISTING CALCULATIONS from indicatorService (like all other enrichers)
 	 *
@@ -29,11 +48,12 @@ export class MovingAveragesEnricher {
 		// ✅ Get EMAs from EXISTING calculations via indicatorService
 		const emas = {};
 		for (const period of this.emaPeriods) {
+			const bars = this._getAdaptiveBarCount(timeframe, period === 200);
 			const series = await indicatorService.getIndicatorTimeSeries({
 				symbol,
 				indicator: 'ema',
 				timeframe,
-				bars: 250, // Extra for EMA200
+				bars,
 				config: { period },
 			});
 
@@ -47,11 +67,12 @@ export class MovingAveragesEnricher {
 		// ✅ Get SMAs from EXISTING calculations via indicatorService
 		const smas = {};
 		for (const period of this.smaPeriods) {
+			const bars = this._getAdaptiveBarCount(timeframe);
 			const series = await indicatorService.getIndicatorTimeSeries({
 				symbol,
 				indicator: 'sma',
 				timeframe,
-				bars: 200,
+				bars,
 				config: { period },
 			});
 

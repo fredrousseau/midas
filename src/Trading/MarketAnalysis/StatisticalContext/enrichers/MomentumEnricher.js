@@ -32,15 +32,34 @@ export class MomentumEnricher {
 	}
 
 	/**
+	 * Get adaptive bar count based on timeframe
+	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
+	 */
+	_getAdaptiveBarCount(timeframe) {
+		const barCounts = {
+			'5m': 200,
+			'15m': 200,
+			'30m': 200,
+			'1h': 150,
+			'4h': 150,
+			'1d': 100,
+			'1w': 60,
+			'1M': 50
+		};
+		return barCounts[timeframe] || 150; // Default fallback
+	}
+
+	/**
 	 * Get indicator series
 	 * @throws {Error} If indicator calculation fails
 	 */
 	async _getIndicatorSafe(indicatorService, symbol, indicator, timeframe) {
+		const bars = this._getAdaptiveBarCount(timeframe);
 		const series = await indicatorService.getIndicatorTimeSeries({
 			symbol,
 			indicator,
 			timeframe,
-			bars: 200,
+			bars,
 			config: {}
 		});
 		return series;
