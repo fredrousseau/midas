@@ -351,7 +351,9 @@ export class PatternDetector {
 	 * Two similar peaks/troughs indicating reversal
 	 */
 	_detectDouble(bars, atr) {
-		const swings = this._findSwings(bars.slice(-50), atr, 1.3);
+		const recentBars = bars.slice(-50);
+		const offset = bars.length - recentBars.length;
+		const swings = this._findSwings(recentBars, atr, 1.3);
 		const highs = swings.filter(s => s.type === 'high');
 		const lows = swings.filter(s => s.type === 'low');
 
@@ -361,8 +363,11 @@ export class PatternDetector {
 
 			// Peaks within 2% of each other
 			if (Math.abs(A.price - B.price) / A.price < 0.02) {
+				// Adjust indices to match original bars array
+				const startIdx = A.index + offset;
+				const endIdx = B.index + offset;
 				const supportLevel = Math.min(
-					...bars.slice(A.index, B.index).map(b => b.low)
+					...bars.slice(startIdx, endIdx + 1).map(b => b.low)
 				);
 
 				return {
@@ -374,7 +379,7 @@ export class PatternDetector {
 					first_top: round(A.price, 0),
 					second_top: round(B.price, 0),
 					support_level: round(supportLevel, 0),
-					invalidation: supportLevel,
+					invalidation: round(supportLevel, 0),
 					status: 'forming'
 				};
 			}
@@ -386,8 +391,11 @@ export class PatternDetector {
 
 			// Troughs within 2% of each other
 			if (Math.abs(A.price - B.price) / A.price < 0.02) {
+				// Adjust indices to match original bars array
+				const startIdx = A.index + offset;
+				const endIdx = B.index + offset;
 				const resistanceLevel = Math.max(
-					...bars.slice(A.index, B.index).map(b => b.high)
+					...bars.slice(startIdx, endIdx + 1).map(b => b.high)
 				);
 
 				// Invalidation should be below the bottoms, not above
