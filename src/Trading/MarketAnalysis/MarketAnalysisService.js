@@ -45,7 +45,7 @@ export class MarketAnalysisService {
 			analysisDate,
 		});
 
-		const alignment = statContext.multi_timeframe_alignment;
+		const alignment = statContext._internal_alignment;
 
 		// Generate recommendation based on alignment
 		const recommendation = this._generateRecommendation(alignment);
@@ -53,11 +53,14 @@ export class MarketAnalysisService {
 		// Assess overall quality
 		const quality = this._assessAlignmentQuality(alignment);
 
+		// Remove internal alignment from statContext before returning
+		const { _internal_alignment, ...cleanStatContext } = statContext;
+
 		return {
 			symbol,
 			timestamp: new Date().toISOString(),
 			analysisDate: analysisDate || null,
-			statistical_context: statContext,
+			statistical_context: cleanStatContext,
 			multi_timeframe_alignment: {
 				...alignment,
 				quality,

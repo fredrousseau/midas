@@ -182,7 +182,7 @@ export class StatisticalContextService {
 				data_quality: this._assessDataQuality(contexts),
 			},
 			timeframes: timeframesByTemporality,
-			multi_timeframe_alignment: alignment,
+			_internal_alignment: alignment, // Used internally by MarketAnalysisService
 		};
 	}
 
@@ -394,13 +394,13 @@ export class StatisticalContextService {
 		return {
 			type: regimeData.regime,
 			confidence: regimeData.confidence,
-			interpretation: this._interpretRegime(regimeData.regime, regimeData.confidence),
+			interpretation: this._interpretRegime(regimeData.regime),
 			components: regimeData.components,
 			timeframe,
 		};
 	}
 
-	_interpretRegime(regime, confidence) {
+	_interpretRegime(regime) {
 		const interpretations = {
 			trending_bullish: 'Strong upward trend with directional momentum',
 			trending_bearish: 'Strong downward trend with directional momentum',
