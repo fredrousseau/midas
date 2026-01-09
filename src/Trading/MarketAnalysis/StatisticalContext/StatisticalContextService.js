@@ -236,7 +236,7 @@ export class StatisticalContextService {
 		};
 
 		// Base enrichment for all levels
-		enriched.moving_averages = await this.maEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, currentPrice });
+		enriched.moving_averages = await this.maEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, currentPrice, analysisDate });
 		enriched.trend_indicators = { adx: this._extractADXInfo(regimeData) };
 
 		// Light level: basic price action only
@@ -248,7 +248,7 @@ export class StatisticalContextService {
 			const htf = this._getHigherTimeframe(timeframe, Object.keys(higherTFData));
 			const htfData = htf ? higherTFData[htf] : null;
 
-			enriched.momentum_indicators = await this.momentumEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, higherTimeframeData: htfData });
+			enriched.momentum_indicators = await this.momentumEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, higherTimeframeData: htfData, analysisDate });
 			enriched.volatility_indicators = await this.volatilityEnricher.enrich({
 				ohlcvData,
 				indicatorService: this.indicatorService,
@@ -256,8 +256,9 @@ export class StatisticalContextService {
 				timeframe,
 				currentPrice,
 				higherTimeframeData: htfData,
+				analysisDate,
 			});
-			enriched.volume_indicators = await this.volumeEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe });
+			enriched.volume_indicators = await this.volumeEnricher.enrich({ ohlcvData, indicatorService: this.indicatorService, symbol, timeframe, analysisDate });
 			enriched.trend_indicators.psar = await this._getPSAR(symbol, timeframe, analysisDate);
 			enriched.price_action = this.priceActionEnricher.enrich({ ohlcvData, currentPrice });
 			enriched.support_resistance = this._identifySupportResistance(ohlcvData, enriched);
