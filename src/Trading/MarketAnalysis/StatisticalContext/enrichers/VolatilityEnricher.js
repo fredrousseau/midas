@@ -4,6 +4,7 @@
  */
 
 import { round } from '#utils/statisticalHelpers.js';
+import { getBarCount } from '../../config/barCounts.js';
 
 export class VolatilityEnricher {
 	constructor(options = {}) {
@@ -54,28 +55,19 @@ export class VolatilityEnricher {
 	}
 
 	/**
+	/**
 	 * Get adaptive bar count based on timeframe
-	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
+	 * Uses centralized configuration from config/barCounts.js
 	 */
 	_getAdaptiveBarCount(timeframe) {
-		const barCounts = {
-			'5m': 200,
-			'15m': 200,
-			'30m': 200,
-			'1h': 150,
-			'4h': 150,
-			'1d': 100,
-			'1w': 60,
-			'1M': 50
-		};
-		return barCounts[timeframe] || 150; // Default fallback
+		return getBarCount('indicator', timeframe);
 	}
 
 	/**
 	 * Get indicator series
 	 * @throws {Error} If indicator calculation fails
 	 */
-	async _getIndicatorSafe(indicatorService, symbol, indicator, timeframe, analysisDate) {
+	async _getIndicatorSafe
 		const bars = this._getAdaptiveBarCount(timeframe);
 		const series = await indicatorService.getIndicatorTimeSeries({
 			symbol,

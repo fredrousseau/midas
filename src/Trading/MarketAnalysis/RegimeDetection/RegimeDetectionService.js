@@ -138,22 +138,26 @@ export class RegimeDetectionService {
 		// 3. Combined adjustment factor
 		const combinedMultiplier = timeframeMultiplier * volatilityMultiplier;
 
-		// 4. Apply adjustments to thresholds
+		// 4. Apply adjustments to thresholds with validation
+		// CRITICAL: ADX thresholds must stay within valid range (10-100)
+		// Wilder's ADX can go 0-100, but values < 10 are meaningless for trend detection
 		const adaptiveThresholds = {
 			adx: {
-				weak: config.adx.weak * combinedMultiplier,
-				trending: config.adx.trending * combinedMultiplier,
-				strong: config.adx.strong * combinedMultiplier,
+				weak: Math.max(10, Math.min(100, config.adx.weak * combinedMultiplier)),
+				trending: Math.max(15, Math.min(100, config.adx.trending * combinedMultiplier)),
+				strong: Math.max(25, Math.min(100, config.adx.strong * combinedMultiplier)),
 			},
 			er: {
 				// ER thresholds are less affected by volatility but still adjusted by timeframe
-				choppy: config.er.choppy * (0.8 + timeframeMultiplier * 0.2),
-				trending: config.er.trending * (0.8 + timeframeMultiplier * 0.2),
+				// ER ranges from 0 to 1, clamp to valid range
+				choppy: Math.max(0.1, Math.min(0.9, config.er.choppy * (0.8 + timeframeMultiplier * 0.2))),
+				trending: Math.max(0.2, Math.min(1.0, config.er.trending * (0.8 + timeframeMultiplier * 0.2))),
 			},
 			atrRatio: {
 				// ATR ratio thresholds are adjusted inversely (lower in volatile markets)
-				low: config.atrRatio.low / Math.sqrt(volatilityMultiplier),
-				high: config.atrRatio.high / Math.sqrt(volatilityMultiplier),
+				// Must stay positive
+				low: Math.max(0.3, config.atrRatio.low / Math.sqrt(volatilityMultiplier)),
+				high: Math.max(1.0, config.atrRatio.high / Math.sqrt(volatilityMultiplier)),
 			},
 			adjustmentFactors: {
 				timeframe: round4(timeframeMultiplier),

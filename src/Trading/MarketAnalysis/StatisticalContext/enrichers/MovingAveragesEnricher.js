@@ -7,6 +7,7 @@
  */
 
 import { round } from '#utils/statisticalHelpers.js';
+import { getBarCount } from '../../config/barCounts.js';
 
 export class MovingAveragesEnricher {
 	constructor(options = {}) {
@@ -17,21 +18,11 @@ export class MovingAveragesEnricher {
 
 	/**
 	 * Get adaptive bar count based on timeframe
-	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
-	 * For EMAs we need extra bars, especially for EMA200
+	 * Uses centralized configuration from config/barCounts.js
+	 * EMA200 requires more historical data due to long period
 	 */
 	_getAdaptiveBarCount(timeframe, forEMA200 = false) {
-		const barCounts = {
-			'5m': forEMA200 ? 250 : 200,
-			'15m': forEMA200 ? 250 : 200,
-			'30m': forEMA200 ? 250 : 200,
-			'1h': forEMA200 ? 220 : 150,
-			'4h': forEMA200 ? 220 : 150,
-			'1d': forEMA200 ? 210 : 100,
-			'1w': forEMA200 ? 210 : 60,
-			'1M': forEMA200 ? 210 : 50
-		};
-		return barCounts[timeframe] || (forEMA200 ? 220 : 150); // Default fallback
+		return getBarCount(forEMA200 ? 'ema200' : 'indicator', timeframe);
 	}
 
 	/**

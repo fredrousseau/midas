@@ -11,6 +11,7 @@ import VolumeEnricher from './enrichers/VolumeEnricher.js';
 import PriceActionEnricher from './enrichers/PriceActionEnricher.js';
 import PatternDetector from './enrichers/PatternDetector.js';
 import { calculateStats, getPercentileRank, getTypicalRange, detectTrend, detectAnomaly, rateOfChange, round } from '../../../Utils/statisticalHelpers.js';
+import { getBarCount } from '../config/barCounts.js';
 
 export class StatisticalContextService {
 	constructor(options = {}) {
@@ -189,19 +190,10 @@ export class StatisticalContextService {
 	/**
 	 * Get adaptive OHLCV bar count based on timeframe
 	 * Larger timeframes need fewer bars to avoid excessive historical data requirements
+	 * Uses centralized configuration from config/barCounts.js
 	 */
 	_getAdaptiveOHLCVCount(timeframe) {
-		const barCounts = {
-			'5m': 300,   // ~1 day of data
-			'15m': 300,  // ~3 days of data
-			'30m': 250,  // ~5 days of data
-			'1h': 250,   // ~10 days of data
-			'4h': 200,   // ~33 days of data
-			'1d': 150,   // ~5 months of data
-			'1w': 100,   // ~2 years of data
-			'1M': 60     // ~5 years of data
-		};
-		return barCounts[timeframe] || 250; // Default fallback
+		return getBarCount('ohlcv', timeframe);
 	}
 
 	/**
@@ -531,7 +523,9 @@ export class StatisticalContextService {
 		const conflicts = [];
 
 		// Timeframe weights for importance scoring
-		const weights = { '1m': 2.5, '1w': 2.5, '1d': 3.0, '4h': 2.0, '1h': 1.5, '30m': 1.0, '15m': 0.8, '5m': 0.5 };
+		// Lower timeframes (< 1h) have reduced weight due to higher noise
+		// Higher timeframes (>= 1d) have increased weight as they represent primary trend
+		const weights = { '1m': 0.3, '5m': 0.5, '15m': 0.8, '30m': 1.0, '1h': 1.5, '4h': 2.0, '1d': 3.0, '1w': 2.5 };
 
 		for (const [tf, ctx] of Object.entries(contexts)) {
 			if (!ctx?.regime) continue;
