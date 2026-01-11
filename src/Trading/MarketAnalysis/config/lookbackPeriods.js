@@ -38,7 +38,34 @@ export const PATTERN_PERIODS = {
 	swingLookback: 30,     // Bars to look back for swing points
 	structureLookback: 80, // Bars to analyze price structure (max used in PatternDetector)
 	microPattern: 10,      // Recent bars for micro patterns
-	recentAction: 3        // Most recent bars for immediate action
+	recentAction: 3,       // Most recent bars for immediate action
+
+	// Pattern-specific parameters (used in PatternDetector.js)
+	minimumBars: 30,       // Minimum bars required for pattern detection
+	range24h: 24,          // 24-hour range analysis (time-specific)
+
+	// Flag pattern parameters
+	flagRecent: 30,        // Recent bars for flag pattern detection
+	poleMinLength: 15,     // Minimum pole length for flag
+	poleSearchStart: 15,   // Where to start looking for pole
+	poleSearchEnd: 8,      // Where to end pole search
+	flagMinLength: 5,      // Minimum flag duration
+	flagMaxLength: 15,     // Maximum flag duration
+
+	// Triangle/Wedge/H&S swing detection
+	triangleSwingBars: 60,      // Bars for triangle swing detection
+	wedgeSwingBars: 60,         // Bars for wedge swing detection
+	headShouldersSwingBars: 80, // Bars for H&S pattern
+	doublePatternBars: 50       // Bars for double top/bottom
+};
+
+/**
+ * ATR multipliers for pattern swing detection
+ * Used to determine significance of swings in pattern detection
+ */
+export const PATTERN_ATR_MULTIPLIERS = {
+	normalSwing: 1.3,      // Standard swing detection
+	significantSwing: 1.5  // Significant pattern swings (H&S)
 };
 
 /**
@@ -137,6 +164,7 @@ export function getAllLookbackPeriods() {
 		STATISTICAL_PERIODS,
 		TREND_PERIODS,
 		PATTERN_PERIODS,
+		PATTERN_ATR_MULTIPLIERS,
 		VOLUME_PERIODS,
 		SUPPORT_RESISTANCE_PERIODS
 	};

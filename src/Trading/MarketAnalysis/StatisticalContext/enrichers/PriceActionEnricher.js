@@ -4,6 +4,7 @@
  */
 
 import { round } from '#utils/statisticalHelpers.js';
+import { STATISTICAL_PERIODS, TREND_PERIODS, PATTERN_PERIODS, SUPPORT_RESISTANCE_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class PriceActionEnricher {
 	constructor(options = {}) {
@@ -22,31 +23,31 @@ export class PriceActionEnricher {
 			open: currentBar.open,
 			high: currentBar.high,
 			low: currentBar.low,
-			
+
 			// Bar analysis
 			bar_type: this._getBarType(currentBar),
 			body_to_range: this._getBodyToRange(currentBar),
-			
+
 			// Wick analysis
 			wick_analysis: this._analyzeWicks(currentBar),
-			
+
 			// Structure
-			recent_structure: this._analyzeStructure(bars.slice(-20)),
-			
+			recent_structure: this._analyzeStructure(bars.slice(-STATISTICAL_PERIODS.short)),
+
 			// Candle patterns
-			candle_patterns: this._detectCandlePatterns(bars.slice(-5)),
-			
+			candle_patterns: this._detectCandlePatterns(bars.slice(-TREND_PERIODS.immediate)),
+
 			// Swing points
-			swing_points: this._identifySwingPoints(bars.slice(-50)),
-			
+			swing_points: this._identifySwingPoints(bars.slice(-SUPPORT_RESISTANCE_PERIODS.lookback)),
+
 			// Range analysis
-			range_24h: this._analyzeRange(bars.slice(-24)),
-			
+			range_24h: this._analyzeRange(bars.slice(-PATTERN_PERIODS.range24h)),
+
 			// Micro structure
-			micro_structure: this._analyzeMicroStructure(bars.slice(-10)),
-			
+			micro_structure: this._analyzeMicroStructure(bars.slice(-PATTERN_PERIODS.microPattern)),
+
 			// Breakout levels
-			breakout_levels: this._identifyBreakoutLevels(bars.slice(-20), currentPrice)
+			breakout_levels: this._identifyBreakoutLevels(bars.slice(-STATISTICAL_PERIODS.short), currentPrice)
 		};
 	}
 
@@ -252,8 +253,8 @@ export class PriceActionEnricher {
 		let recentLow = bars[0].low;
 		let highIndex = 0;
 		let lowIndex = 0;
-		
-		for (let i = 1; i < Math.min(bars.length, 20); i++) {
+
+		for (let i = 1; i < Math.min(bars.length, STATISTICAL_PERIODS.short); i++) {
 			if (bars[i].high > recentHigh) {
 				recentHigh = bars[i].high;
 				highIndex = i;
@@ -376,14 +377,14 @@ export class PriceActionEnricher {
 	 * Identify breakout levels
 	 */
 	_identifyBreakoutLevels(bars, currentPrice) {
-		if (bars.length < 10) return null;
-		
+		if (bars.length < PATTERN_PERIODS.microPattern) return null;
+
 		const highs = bars.map(b => b.high);
 		const lows = bars.map(b => b.low);
-		
+
 		// Recent high/low (last 10 bars)
-		const recentHigh = Math.max(...highs.slice(-10));
-		const recentLow = Math.min(...lows.slice(-10));
+		const recentHigh = Math.max(...highs.slice(-PATTERN_PERIODS.microPattern));
+		const recentLow = Math.min(...lows.slice(-PATTERN_PERIODS.microPattern));
 		
 		return {
 			upside: round(recentHigh, 0),

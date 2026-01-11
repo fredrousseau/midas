@@ -5,6 +5,7 @@
 
 import { round } from '#utils/statisticalHelpers.js';
 import { getBarCount } from '../../config/barCounts.js';
+import { STATISTICAL_PERIODS, TREND_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class VolatilityEnricher {
 	constructor(options = {}) {
@@ -88,13 +89,13 @@ export class VolatilityEnricher {
 		const currentATR = atrValues[atrValues.length - 1];
 
 		// Calculate percentiles
-		const percentile50d = this._getPercentile(currentATR, atrValues.slice(-50));
+		const percentile50d = this._getPercentile(currentATR, atrValues.slice(-STATISTICAL_PERIODS.medium));
 
 		// Calculate mean
-		const mean50d = this._mean(atrValues.slice(-50));
+		const mean50d = this._mean(atrValues.slice(-STATISTICAL_PERIODS.medium));
 
 		// Detect trend
-		const trend = this._detectATRTrend(atrValues.slice(-10));
+		const trend = this._detectATRTrend(atrValues.slice(-TREND_PERIODS.short));
 
 		// Interpretation
 		let interpretation;
@@ -150,10 +151,10 @@ export class VolatilityEnricher {
 		let bandwidthPercentile = null;
 		if (bbWidthSeries) {
 			const widthValues = bbWidthSeries.data.map(d => d.value);
-			widthPercentile = this._getPercentile(width, widthValues.slice(-50));
-			
+			widthPercentile = this._getPercentile(width, widthValues.slice(-STATISTICAL_PERIODS.medium));
+
 			// Calculate bandwidth percentile for squeeze detection
-			const recentWidths = widthValues.slice(-20);
+			const recentWidths = widthValues.slice(-STATISTICAL_PERIODS.short);
 			bandwidthPercentile = this._getPercentile(width, recentWidths);
 		}
 
@@ -281,9 +282,9 @@ export class VolatilityEnricher {
 	 * Detect ATR trend
 	 */
 	_detectATRTrend(atrValues) {
-		if (atrValues.length < 5) return 'insufficient data';
+		if (atrValues.length < TREND_PERIODS.immediate) return 'insufficient data';
 
-		const recent = atrValues.slice(-5);
+		const recent = atrValues.slice(-TREND_PERIODS.immediate);
 		const first = recent[0];
 		const last = recent[recent.length - 1];
 		const change = ((last - first) / first) * 100;

@@ -12,6 +12,7 @@ import PriceActionEnricher from './enrichers/PriceActionEnricher.js';
 import PatternDetector from './enrichers/PatternDetector.js';
 import { calculateStats, getPercentileRank, getTypicalRange, detectTrend, detectAnomaly, rateOfChange, round } from '../../../Utils/statisticalHelpers.js';
 import { getBarCount } from '../config/barCounts.js';
+import { STATISTICAL_PERIODS, TREND_PERIODS, PATTERN_PERIODS, SUPPORT_RESISTANCE_PERIODS } from '../config/lookbackPeriods.js';
 
 export class StatisticalContextService {
 	constructor(options = {}) {
@@ -82,15 +83,15 @@ export class StatisticalContextService {
 			};
 		}
 
-		const trendData = detectTrend(simpleHistory.slice(-20));
+		const trendData = detectTrend(simpleHistory.slice(-TREND_PERIODS.medium));
 		enriched.trend = trendData.direction;
 		enriched.trend_strength = round(trendData.strength, 3);
 
-		const roc5 = rateOfChange(simpleHistory, 5);
-		const roc10 = rateOfChange(simpleHistory, 10);
+		const roc5 = rateOfChange(simpleHistory, TREND_PERIODS.immediate);
+		const roc10 = rateOfChange(simpleHistory, TREND_PERIODS.short);
 		if (roc5 !== null) enriched.rate_of_change = { '5_bars': `${round(roc5, 2)}%`, '10_bars': roc10 !== null ? `${round(roc10, 2)}%` : null };
 
-		const anomalyData = detectAnomaly(value, simpleHistory.slice(-90));
+		const anomalyData = detectAnomaly(value, simpleHistory.slice(-STATISTICAL_PERIODS.long));
 		if (anomalyData.isAnomaly)
 			enriched.anomaly = {
 				detected: true,
@@ -426,7 +427,7 @@ export class StatisticalContextService {
 				symbol,
 				indicator: 'psar',
 				timeframe,
-				bars: 50,
+				bars: getBarCount('indicator', timeframe),
 				analysisDate,
 				config: { step: 0.02, max: 0.2 },
 			});
@@ -457,7 +458,7 @@ export class StatisticalContextService {
 		const previous = bars[bars.length - 2];
 		const change = ((current.close - previous.close) / previous.close) * 100;
 		let structure = 'neutral';
-		const last10 = bars.slice(-10);
+		const last10 = bars.slice(-PATTERN_PERIODS.microPattern);
 		const highs = last10.map((b) => b.high);
 		const highsIncreasing = highs[highs.length - 1] > highs[0];
 		const lows = last10.map((b) => b.low);
@@ -468,7 +469,7 @@ export class StatisticalContextService {
 	}
 
 	_identifySupportResistance(ohlcvData, enriched) {
-		const bars = ohlcvData.bars.slice(-50);
+		const bars = ohlcvData.bars.slice(-SUPPORT_RESISTANCE_PERIODS.lookback);
 		const currentPrice = bars[bars.length - 1].close;
 		const resistanceLevels = [];
 		const supportLevels = [];

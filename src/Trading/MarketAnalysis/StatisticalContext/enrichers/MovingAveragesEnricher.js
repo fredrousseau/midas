@@ -8,6 +8,7 @@
 
 import { round } from '#utils/statisticalHelpers.js';
 import { getBarCount } from '../../config/barCounts.js';
+import { STATISTICAL_PERIODS, TREND_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class MovingAveragesEnricher {
 	constructor(options = {}) {
@@ -97,9 +98,9 @@ export class MovingAveragesEnricher {
 				cross_50_200: emas[50] && emas[200] ? this._detectCross(emas[50].history, emas[200].history, 'EMA50/EMA200') : null,
 
 				// Slopes
-				slope_ema12: emas[12] ? this._calculateSlope(emas[12].history, 10) : null,
-				slope_ema26: emas[26] ? this._calculateSlope(emas[26].history, 10) : null,
-				slope_ema50: emas[50] ? this._calculateSlope(emas[50].history, 20) : null,
+				slope_ema12: emas[12] ? this._calculateSlope(emas[12].history, TREND_PERIODS.short) : null,
+				slope_ema26: emas[26] ? this._calculateSlope(emas[26].history, TREND_PERIODS.short) : null,
+				slope_ema50: emas[50] ? this._calculateSlope(emas[50].history, STATISTICAL_PERIODS.short) : null,
 
 				// Divergence
 				divergence: emas[12] && emas[26] && emas[50] ? this._analyzeDivergence(emas[12].history, emas[26].history, emas[50].history) : null,
@@ -175,7 +176,7 @@ export class MovingAveragesEnricher {
 	/**
 	 * Calculate slope (rate of change per bar)
 	 */
-	_calculateSlope(history, lookback = 10) {
+	_calculateSlope(history, lookback = TREND_PERIODS.short) {
 		if (!history || history.length < lookback) return 'insufficient data';
 
 		const recent = history.slice(-lookback);
@@ -213,11 +214,11 @@ export class MovingAveragesEnricher {
 	 */
 	_analyzeDivergence(ema12, ema26, ema50) {
 		if (!ema12 || !ema26 || !ema50) return 'insufficient data';
-		if (ema12.length < 20) return 'insufficient data';
+		if (ema12.length < STATISTICAL_PERIODS.short) return 'insufficient data';
 
-		const recent12 = ema12.slice(-20);
-		const recent26 = ema26.slice(-20);
-		const recent50 = ema50.slice(-20);
+		const recent12 = ema12.slice(-STATISTICAL_PERIODS.short);
+		const recent26 = ema26.slice(-STATISTICAL_PERIODS.short);
+		const recent50 = ema50.slice(-STATISTICAL_PERIODS.short);
 
 		// Calculate slopes
 		const slope12 = this._getSimpleSlope(recent12);

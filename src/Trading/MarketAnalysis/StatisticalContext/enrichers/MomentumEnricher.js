@@ -5,6 +5,7 @@
 
 import { round } from '#utils/statisticalHelpers.js';
 import { getBarCount } from '../../config/barCounts.js';
+import { STATISTICAL_PERIODS, TREND_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class MomentumEnricher {
 	constructor(options = {}) {
@@ -65,18 +66,18 @@ export class MomentumEnricher {
 		const currentRSI = rsiValues[rsiValues.length - 1];
 
 		// Calculate percentiles
-		const percentile20d = this._getPercentile(currentRSI, rsiValues.slice(-20));
-		const percentile50d = this._getPercentile(currentRSI, rsiValues.slice(-50));
+		const percentile20d = this._getPercentile(currentRSI, rsiValues.slice(-STATISTICAL_PERIODS.short));
+		const percentile50d = this._getPercentile(currentRSI, rsiValues.slice(-STATISTICAL_PERIODS.medium));
 
 		// Calculate stats
-		const mean50d = this._mean(rsiValues.slice(-50));
-		const typical_range = this._getTypicalRange(rsiValues.slice(-50));
+		const mean50d = this._mean(rsiValues.slice(-STATISTICAL_PERIODS.medium));
+		const typical_range = this._getTypicalRange(rsiValues.slice(-STATISTICAL_PERIODS.medium));
 
 		// Detect trend
-		const trend = this._detectTrend(rsiValues.slice(-10));
+		const trend = this._detectTrend(rsiValues.slice(-TREND_PERIODS.short));
 
 		// Detect divergence with price
-		const divergence = this._detectRSIDivergence(rsiValues.slice(-20), closes.slice(-20));
+		const divergence = this._detectRSIDivergence(rsiValues.slice(-TREND_PERIODS.medium), closes.slice(-TREND_PERIODS.medium));
 
 		// Compare with higher timeframe
 		let vs_htf = null;
@@ -140,7 +141,7 @@ export class MomentumEnricher {
 		const histogram = current.values.macdHistogram;
 
 		// Histogram trend
-		const histogramValues = macdData.slice(-10).map(d => d.values?.macdHistogram).filter(Boolean);
+		const histogramValues = macdData.slice(-TREND_PERIODS.short).map(d => d.values?.macdHistogram).filter(Boolean);
 		const histogramTrend = this._analyzeHistogramTrend(histogramValues);
 
 		// Detect cross
@@ -160,8 +161,8 @@ export class MomentumEnricher {
 			interpretation = 'weak momentum (transition)';
 
 		// Divergence with price
-		const macdValues = macdData.slice(-20).map(d => d.values?.macd).filter(Boolean);
-		const divergence = this._detectMACDDivergence(macdValues, closes.slice(-20));
+		const macdValues = macdData.slice(-TREND_PERIODS.medium).map(d => d.values?.macd).filter(Boolean);
+		const divergence = this._detectMACDDivergence(macdValues, closes.slice(-TREND_PERIODS.medium));
 
 		// Compare with HTF
 		let context = null;
@@ -288,8 +289,8 @@ export class MomentumEnricher {
 			return 'none';
 
 		// Find recent peaks
-		const rsiPeaks = this._findPeaks(rsiValues.slice(-10));
-		const pricePeaks = this._findPeaks(priceValues.slice(-10));
+		const rsiPeaks = this._findPeaks(rsiValues.slice(-TREND_PERIODS.short));
+		const pricePeaks = this._findPeaks(priceValues.slice(-TREND_PERIODS.short));
 
 		if (rsiPeaks.length >= 2 && pricePeaks.length >= 2) {
 			const rsiTrend = rsiPeaks[rsiPeaks.length - 1] - rsiPeaks[rsiPeaks.length - 2];
@@ -327,9 +328,9 @@ export class MomentumEnricher {
 	 * Analyze histogram trend
 	 */
 	_analyzeHistogramTrend(histogramValues) {
-		if (histogramValues.length < 5) return 'insufficient data';
-		
-		const recent = histogramValues.slice(-5);
+		if (histogramValues.length < TREND_PERIODS.immediate) return 'insufficient data';
+
+		const recent = histogramValues.slice(-TREND_PERIODS.immediate);
 		const increasing = recent.every((val, i) => i === 0 || val > recent[i - 1]);
 		const decreasing = recent.every((val, i) => i === 0 || val < recent[i - 1]);
 

@@ -5,6 +5,7 @@
 
 import { round } from '#utils/statisticalHelpers.js';
 import { getBarCount } from '../../config/barCounts.js';
+import { STATISTICAL_PERIODS, VOLUME_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class VolumeEnricher {
 	constructor(options = {}) {
@@ -62,7 +63,7 @@ export class VolumeEnricher {
 		const currentVolume = volumes[volumes.length - 1];
 
 		// Calculate average
-		const avg20 = this._mean(volumes.slice(-20));
+		const avg20 = this._mean(volumes.slice(-VOLUME_PERIODS.average));
 
 		// Volume ratio
 		const ratio = currentVolume / avg20;
@@ -81,7 +82,7 @@ export class VolumeEnricher {
 			interpretation = 'normal volume';
 
 		// Recent bars analysis
-		const recentBars = this._analyzeRecentVolumeBars(bars.slice(-10));
+		const recentBars = this._analyzeRecentVolumeBars(bars.slice(-VOLUME_PERIODS.recentBars));
 
 		// Context
 		let context = null;
@@ -127,14 +128,14 @@ export class VolumeEnricher {
 		const currentOBV = obvValues[obvValues.length - 1];
 
 		// Detect trend
-		const trend = this._detectOBVTrend(obvValues.slice(-20));
+		const trend = this._detectOBVTrend(obvValues.slice(-VOLUME_PERIODS.obvTrend));
 
 		// Calculate percentile
-		const percentile50d = this._getPercentile(currentOBV, obvValues.slice(-50));
+		const percentile50d = this._getPercentile(currentOBV, obvValues.slice(-STATISTICAL_PERIODS.medium));
 
 		// Divergence with price
-		const prices = bars.slice(-20).map(b => b.close);
-		const divergence = this._detectOBVDivergence(obvValues.slice(-20), prices);
+		const prices = bars.slice(-VOLUME_PERIODS.obvTrend).map(b => b.close);
+		const divergence = this._detectOBVDivergence(obvValues.slice(-VOLUME_PERIODS.divergence), prices.slice(-VOLUME_PERIODS.divergence));
 
 		// Interpretation
 		let interpretation;

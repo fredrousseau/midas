@@ -10,6 +10,7 @@
  */
 
 import { round } from '#utils/statisticalHelpers.js';
+import { PATTERN_PERIODS, PATTERN_ATR_MULTIPLIERS, VOLUME_PERIODS } from '../../config/lookbackPeriods.js';
 
 export class PatternDetector {
 	constructor(options = {}) {
@@ -27,13 +28,13 @@ export class PatternDetector {
 	 */
 	detect({ ohlcvData, currentPrice, volatilityIndicators, momentumIndicators, trendIndicators }) {
 		const bars = ohlcvData?.bars;
-		if (!bars || bars.length < 30) return null;
+		if (!bars || bars.length < PATTERN_PERIODS.minimumBars) return null;
 
 		// ATR is required for pattern detection - return null if not available
 		if (!volatilityIndicators?.atr?.value) return null;
 
 		const atr = volatilityIndicators.atr.value;
-		const avgVolume = this._calculateAvgVolume(bars, 20);
+		const avgVolume = this._calculateAvgVolume(bars, VOLUME_PERIODS.average);
 
 		const patterns = [];
 
@@ -117,7 +118,7 @@ export class PatternDetector {
 	/**
 	 * Calculate average volume
 	 */
-	_calculateAvgVolume(bars, period = 20) {
+	_calculateAvgVolume(bars, period = VOLUME_PERIODS.average) {
 		const recent = bars.slice(-period);
 		return recent.reduce((a, b) => a + b.volume, 0) / recent.length;
 	}
@@ -166,11 +167,11 @@ export class PatternDetector {
 	 * Strong pole + consolidation flag
 	 */
 	_detectFlag(bars, currentPrice, atr) {
-		const recent = bars.slice(-30);
+		const recent = bars.slice(-PATTERN_PERIODS.flagRecent);
 
 		// Dynamic pole search (8-15 bars)
-		for (let poleEnd = recent.length - 5; poleEnd >= 15; poleEnd--)
-			for (let poleStart = poleEnd - 15; poleStart < poleEnd - 8; poleStart++) {
+		for (let poleEnd = recent.length - 5; poleEnd >= PATTERN_PERIODS.poleMinLength; poleEnd--)
+			for (let poleStart = poleEnd - PATTERN_PERIODS.poleSearchStart; poleStart < poleEnd - PATTERN_PERIODS.poleSearchEnd; poleStart++) {
 				const pole = recent.slice(poleStart, poleEnd);
 				const poleMove = pole[pole.length - 1].close - pole[0].close;
 				const poleRange = Math.abs(poleMove);
@@ -183,7 +184,7 @@ export class PatternDetector {
 				const flag = recent.slice(poleEnd);
 
 				// Flag duration: 5-15 bars
-				if (flag.length < 5 || flag.length > 15) continue;
+				if (flag.length < PATTERN_PERIODS.flagMinLength || flag.length > PATTERN_PERIODS.flagMaxLength) continue;
 
 				const flagHigh = Math.max(...flag.map(b => b.high));
 				const flagLow = Math.min(...flag.map(b => b.low));
@@ -226,7 +227,7 @@ export class PatternDetector {
 	 * Ascending, descending, or symmetrical based on swing slopes
 	 */
 	_detectTriangle(bars, atr) {
-		const swings = this._findSwings(bars.slice(-60), atr, 1.3);
+		const swings = this._findSwings(bars.slice(-PATTERN_PERIODS.triangleSwingBars), atr, PATTERN_ATR_MULTIPLIERS.normalSwing);
 		const highs = swings.filter(s => s.type === 'high');
 		const lows = swings.filter(s => s.type === 'low');
 
@@ -284,7 +285,7 @@ export class PatternDetector {
 	 * Both lines sloping in same direction (reversal indicator)
 	 */
 	_detectWedge(bars, atr) {
-		const swings = this._findSwings(bars.slice(-60), atr, 1.3);
+		const swings = this._findSwings(bars.slice(-PATTERN_PERIODS.wedgeSwingBars), atr, PATTERN_ATR_MULTIPLIERS.normalSwing);
 		const highs = swings.filter(s => s.type === 'high');
 		const lows = swings.filter(s => s.type === 'low');
 
@@ -325,7 +326,7 @@ export class PatternDetector {
 	 * Three peaks with middle highest and equal shoulders
 	 */
 	_detectHeadAndShoulders(bars, atr) {
-		const swings = this._findSwings(bars.slice(-80), atr, 1.5);
+		const swings = this._findSwings(bars.slice(-PATTERN_PERIODS.headShouldersSwingBars), atr, PATTERN_ATR_MULTIPLIERS.significantSwing);
 		const highs = swings.filter(s => s.type === 'high');
 
 		if (highs.length < 3) return null;
@@ -362,9 +363,9 @@ export class PatternDetector {
 	 * Two similar peaks/troughs indicating reversal
 	 */
 	_detectDouble(bars, atr) {
-		const recentBars = bars.slice(-50);
+		const recentBars = bars.slice(-PATTERN_PERIODS.doublePatternBars);
 		const offset = bars.length - recentBars.length;
-		const swings = this._findSwings(recentBars, atr, 1.3);
+		const swings = this._findSwings(recentBars, atr, PATTERN_ATR_MULTIPLIERS.normalSwing);
 		const highs = swings.filter(s => s.type === 'high');
 		const lows = swings.filter(s => s.type === 'low');
 
