@@ -14,6 +14,9 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 total_suites=0
 passed_suites=0
 failed_suites=0
@@ -21,12 +24,12 @@ failed_suites=0
 run_suite() {
     local name="$1"
     local command="$2"
-    
+
     total_suites=$((total_suites + 1))
-    
+
     echo -e "${BLUE}Running: $name${NC}"
     echo "----------------------------------------------------------------------"
-    
+
     if eval "$command"; then
         echo -e "${GREEN}✅ $name PASSED${NC}"
         echo ""
@@ -42,15 +45,15 @@ run_suite() {
 
 # Test Suite 1: Critical Fixes Validation
 run_suite "Critical Fixes Validation (Bar Counts, Lookback, ADX)" \
-    "node scripts/validate-critical-fixes.js"
+    "node \"$SCRIPT_DIR/validate-critical-fixes.js\""
 
 # Test Suite 2: Functional Tests (Lookback Periods)
 run_suite "Functional Tests (Configuration & Calculations)" \
-    "node scripts/test-enrichers-functional.js"
+    "node \"$SCRIPT_DIR/test-enrichers-functional.js\""
 
 # Test Suite 3: Integration Tests (Real Services)
 run_suite "Integration Tests (Service Imports & Execution)" \
-    "node scripts/test-integration-api.js"
+    "node \"$SCRIPT_DIR/test-integration-api.js\""
 
 # Summary
 echo "======================================================================"
