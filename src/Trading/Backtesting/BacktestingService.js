@@ -168,11 +168,11 @@ export class BacktestingService {
 		this.logger.info(`Fetching ~${estimatedCandles} candles for ${timeframe} timeframe`);
 
 		// Get OHLCV data
-		const ohlcvData = await this.marketDataService.getOHLCV({
+		const ohlcvData = await this.marketDataService.loadOHLCV({
 			symbol,
 			timeframe,
-			bars: estimatedCandles + 100, // Extra margin for warmup
-			analysisDate: endDate
+			count: estimatedCandles + 100, // Extra margin for warmup
+			to: endDate
 		});
 
 		if (!ohlcvData || !ohlcvData.bars) {
