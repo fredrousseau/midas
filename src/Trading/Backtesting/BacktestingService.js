@@ -172,7 +172,7 @@ export class BacktestingService {
 			symbol,
 			timeframe,
 			count: estimatedCandles + 100, // Extra margin for warmup
-			to: endDate
+			to: endDate.getTime() // Convert Date to timestamp in milliseconds
 		});
 
 		if (!ohlcvData || !ohlcvData.bars) {
