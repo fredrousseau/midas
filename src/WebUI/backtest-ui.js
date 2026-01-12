@@ -84,7 +84,12 @@ window.runBacktest = async function() {
             try {
                 const errorData = await response.json();
                 console.error('Backend error response:', errorData);
-                errorMessage = errorData.error || errorData.message || JSON.stringify(errorData);
+                // Backend returns { success: false, error: { type, message } }
+                if (errorData.error && typeof errorData.error === 'object') {
+                    errorMessage = errorData.error.message || JSON.stringify(errorData.error);
+                } else {
+                    errorMessage = errorData.error || errorData.message || JSON.stringify(errorData);
+                }
             } catch (parseError) {
                 // Response wasn't JSON, try to get text
                 const textError = await response.text();
