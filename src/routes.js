@@ -405,6 +405,7 @@ export function registerRoutes(parameters) {
 
 			const backtestingService = new BacktestingService({
 				logger,
+				dataProvider,
 				marketDataService,
 				indicatorService
 			});

@@ -17,8 +17,13 @@ import { MarketAnalysisService } from '../MarketAnalysis/MarketAnalysisService.j
 export class BacktestingService {
 	constructor(options = {}) {
 		this.logger = options.logger || console;
+		this.dataProvider = options.dataProvider;
 		this.marketDataService = options.marketDataService;
 		this.indicatorService = options.indicatorService;
+
+		if (!this.dataProvider) {
+			throw new Error('BacktestingService requires dataProvider');
+		}
 
 		if (!this.marketDataService) {
 			throw new Error('BacktestingService requires marketDataService');
@@ -30,7 +35,7 @@ export class BacktestingService {
 
 		this.marketAnalysisService = new MarketAnalysisService({
 			logger: this.logger,
-			marketDataService: this.marketDataService,
+			dataProvider: this.dataProvider,
 			indicatorService: this.indicatorService
 		});
 
