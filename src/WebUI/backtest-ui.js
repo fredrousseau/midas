@@ -63,9 +63,9 @@ window.runBacktest = async function() {
     try {
         const response = await fetch('/api/v1/backtest', {
             method: 'POST',
+            credentials: 'include', // Important: envoie le cookie automatiquement
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getCookie('webui_auth_token')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 symbol,

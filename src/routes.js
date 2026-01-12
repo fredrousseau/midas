@@ -111,14 +111,32 @@ export function registerRoutes(parameters) {
 	app.use((req, res, next) => {
 		// Public paths that don't require authentication
 		const publicPaths = ['/login.html', '/auth-client.js'];
-		if (publicPaths.includes(req.path)) 
+		if (publicPaths.includes(req.path))
 			return next();
 
-		// API routes and MCP - require Bearer token in Authorization header (only if server is secured)
+		// API routes and MCP - require Bearer token OR cookie (only if server is secured)
 		if (req.path.startsWith('/api/') || req.path.startsWith('/mcp')) {
-			if (isSecuredServer) 
-				return authMiddleware(req, res, next);
-			
+			if (isSecuredServer) {
+				// Try Bearer token first
+				const authHeader = req.headers.authorization;
+				if (authHeader && authHeader.startsWith('Bearer ')) {
+					return authMiddleware(req, res, next);
+				}
+
+				// Try cookie as fallback (for WebUI requests)
+				const token = req.cookies.webui_auth_token;
+				if (token) {
+					const validation = oauthService.validateToken(token);
+					if (validation.valid) {
+						req.user = { id: validation.payload.sub, scope: validation.payload.scope };
+						return next();
+					}
+				}
+
+				// No valid auth found
+				return res.status(401).json({ error: 'Missing or invalid authentication' });
+			}
+
 			return next();
 		}
 
