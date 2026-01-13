@@ -403,11 +403,12 @@ export function registerRoutes(parameters) {
 			// Import BacktestingService dynamically
 			const { BacktestingService } = await import('./Trading/Backtesting/BacktestingService.js');
 
+			// Use existing MarketAnalysisService instance instead of recreating services
+			// This ensures all services share the same configuration and cache
 			const backtestingService = new BacktestingService({
 				logger,
-				dataProvider,
 				marketDataService,
-				indicatorService
+				marketAnalysisService
 			});
 
 			const start = new Date(startDate);

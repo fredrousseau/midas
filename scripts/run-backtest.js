@@ -172,19 +172,18 @@ async function main() {
 
 		displayHeader(params);
 
-		// Note: You need to provide your own dataProvider, marketDataService and indicatorService
+		// Note: You need to provide marketDataService and marketAnalysisService
 		// This is a demonstration of how to use the BacktestingService
 
-		console.log(`${yellow}⚠️  Note: This script requires dataProvider, marketDataService and indicatorService${reset}`);
+		console.log(`${yellow}⚠️  Note: This script requires marketDataService and marketAnalysisService${reset}`);
 		console.log(`${yellow}   Please integrate with your data provider (e.g., Binance, database)${reset}\n`);
 
 		// Example usage (commented out - needs real services):
 		/*
 		const backtestingService = new BacktestingService({
 			logger: console,
-			dataProvider: yourDataProvider,
 			marketDataService: yourMarketDataService,
-			indicatorService: yourIndicatorService
+			marketAnalysisService: yourMarketAnalysisService
 		});
 
 		console.log(`${cyan}Starting backtest...${reset}\n`);

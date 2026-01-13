@@ -12,32 +12,21 @@
  * - Trade-by-trade breakdown
  */
 
-import { MarketAnalysisService } from '../MarketAnalysis/MarketAnalysisService.js';
+import { timeframeToMs } from '../../Utils/timeframe.js';
 
 export class BacktestingService {
 	constructor(options = {}) {
 		this.logger = options.logger || console;
-		this.dataProvider = options.dataProvider;
 		this.marketDataService = options.marketDataService;
-		this.indicatorService = options.indicatorService;
-
-		if (!this.dataProvider) {
-			throw new Error('BacktestingService requires dataProvider');
-		}
+		this.marketAnalysisService = options.marketAnalysisService;
 
 		if (!this.marketDataService) {
 			throw new Error('BacktestingService requires marketDataService');
 		}
 
-		if (!this.indicatorService) {
-			throw new Error('BacktestingService requires indicatorService');
+		if (!this.marketAnalysisService) {
+			throw new Error('BacktestingService requires marketAnalysisService');
 		}
-
-		this.marketAnalysisService = new MarketAnalysisService({
-			logger: this.logger,
-			dataProvider: this.dataProvider,
-			indicatorService: this.indicatorService
-		});
 
 		this.logger.info('BacktestingService initialized');
 	}
@@ -158,16 +147,18 @@ export class BacktestingService {
 
 	/**
 	 * Get historical candles for the backtest period
+	 * Uses MarketDataService which handles DataProvider caching
 	 */
 	async _getHistoricalCandles(symbol, timeframe, startDate, endDate) {
 		// Calculate how many candles we need
-		const timeframeMs = this._timeframeToMilliseconds(timeframe);
+		const timeframeMs = timeframeToMs(timeframe);
 		const periodMs = endDate - startDate;
 		const estimatedCandles = Math.ceil(periodMs / timeframeMs);
 
 		this.logger.info(`Fetching ~${estimatedCandles} candles for ${timeframe} timeframe`);
 
-		// Get OHLCV data
+		// Get OHLCV data using MarketDataService
+		// This goes through DataProvider which handles Redis caching
 		const ohlcvData = await this.marketDataService.loadOHLCV({
 			symbol,
 			timeframe,
@@ -175,38 +166,29 @@ export class BacktestingService {
 			to: endDate.getTime() // Convert Date to timestamp in milliseconds
 		});
 
-		if (!ohlcvData || !ohlcvData.bars) {
+		if (!ohlcvData || !ohlcvData.data || ohlcvData.data.length === 0) {
 			throw new Error('No OHLCV data returned from market data service');
 		}
 
+		// MarketDataService returns { data: [...], bars: undefined }
+		// Each data item has { timestamp, values: { open, high, low, close, volume } }
+		// We need to convert to flat structure for backtesting
+		const bars = ohlcvData.data.map(bar => ({
+			timestamp: bar.timestamp,
+			open: bar.values.open,
+			high: bar.values.high,
+			low: bar.values.low,
+			close: bar.values.close,
+			volume: bar.values.volume
+		}));
+
 		// Filter candles to exact date range
-		const filteredCandles = ohlcvData.bars.filter(candle => {
+		const filteredCandles = bars.filter(candle => {
 			const candleDate = new Date(candle.timestamp);
 			return candleDate >= startDate && candleDate <= endDate;
 		});
 
 		return filteredCandles;
-	}
-
-	/**
-	 * Convert timeframe string to milliseconds
-	 */
-	_timeframeToMilliseconds(timeframe) {
-		const units = {
-			'm': 60 * 1000,
-			'h': 60 * 60 * 1000,
-			'd': 24 * 60 * 60 * 1000,
-			'w': 7 * 24 * 60 * 60 * 1000,
-			'M': 30 * 24 * 60 * 60 * 1000
-		};
-
-		const match = timeframe.match(/^(\d+)([mhdwM])$/);
-		if (!match) throw new Error(`Invalid timeframe format: ${timeframe}`);
-
-		const value = parseInt(match[1]);
-		const unit = match[2];
-
-		return value * units[unit];
 	}
 
 	/**
