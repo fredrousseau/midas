@@ -194,19 +194,21 @@ export class BacktestingService {
 
 	/**
 	 * Get appropriate timeframes for backtest based on primary timeframe
+	 * Returns object with long/medium/short keys as expected by MarketAnalysisService
 	 */
 	_getTimeframesForBacktest(primaryTimeframe) {
 		// Map primary timeframe to multi-timeframe setup
+		// Format: { short: primary, medium: 1 level up, long: 2 levels up }
 		const timeframeMaps = {
-			'5m': ['5m', '15m', '1h'],
-			'15m': ['15m', '1h', '4h'],
-			'30m': ['30m', '1h', '4h'],
-			'1h': ['1h', '4h', '1d'],
-			'4h': ['4h', '1d', '1w'],
-			'1d': ['1d', '1w', '1M']
+			'5m': { short: '5m', medium: '15m', long: '1h' },
+			'15m': { short: '15m', medium: '1h', long: '4h' },
+			'30m': { short: '30m', medium: '1h', long: '4h' },
+			'1h': { short: '1h', medium: '4h', long: '1d' },
+			'4h': { short: '4h', medium: '1d', long: '1w' },
+			'1d': { short: '1d', medium: '1w', long: '1M' }
 		};
 
-		return timeframeMaps[primaryTimeframe] || [primaryTimeframe];
+		return timeframeMaps[primaryTimeframe] || { short: primaryTimeframe, medium: primaryTimeframe, long: primaryTimeframe };
 	}
 
 	/**
