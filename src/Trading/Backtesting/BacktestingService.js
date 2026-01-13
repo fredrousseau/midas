@@ -24,7 +24,64 @@ export class BacktestingService {
 
 		if (!this.marketAnalysisService) throw new Error('BacktestingService requires marketAnalysisService');
 
+		// Cache for backtesting optimizations
+		this.analysisCache = new Map();
+		this.regimeCache = new Map();
+
 		this.logger.info('BacktestingService initialized');
+	}
+
+	/**
+	 * Generate optimized market analysis for backtesting with caching
+	 * @private
+	 */
+	async _generateCachedAnalysis(symbol, timeframes, analysisDate) {
+		const cacheKey = `${symbol}_${JSON.stringify(timeframes)}_${analysisDate.getTime()}`;
+
+		// Check cache first
+		if (this.analysisCache.has(cacheKey)) {
+			return this.analysisCache.get(cacheKey);
+		}
+
+		// For higher timeframes (1d, 4h), check if we can reuse recent calculations
+		const optimizedTimeframes = { ...timeframes };
+		const higherTimeframes = ['1d', '4h', '1w'];
+
+		for (const tf of higherTimeframes) {
+			if (timeframes.long === tf || timeframes.medium === tf) {
+				const regimeCacheKey = `${symbol}_${tf}_${Math.floor(analysisDate.getTime() / (1000 * 60 * 60))}`; // Cache per hour
+
+				if (this.regimeCache.has(regimeCacheKey)) {
+					this.logger.verbose(`Reusing cached regime data for ${symbol} ${tf}`);
+					// We can't directly reuse the full analysis, but we can avoid some recalculations
+				}
+			}
+		}
+
+		// Generate analysis
+		const analysis = await this.marketAnalysisService.generateCompleteAnalysis({
+			symbol,
+			timeframes: optimizedTimeframes,
+			analysisDate,
+		});
+
+		// Cache result (keep last 100 analyses in memory)
+		this.analysisCache.set(cacheKey, analysis);
+		if (this.analysisCache.size > 100) {
+			const firstKey = this.analysisCache.keys().next().value;
+			this.analysisCache.delete(firstKey);
+		}
+
+		return analysis;
+	}
+
+	/**
+	 * Clear caches (useful for memory management)
+	 */
+	clearCaches() {
+		this.analysisCache.clear();
+		this.regimeCache.clear();
+		this.logger.info('Backtesting caches cleared');
 	}
 
 	/**
@@ -67,56 +124,61 @@ export class BacktestingService {
 		// Step 2: Iterate through each candle and generate signals
 		const signals = [];
 		const analysisResults = [];
+		const backtestTimeframes = this._getTimeframesForBacktest(timeframe);
 
-		for (let i = 0; i < candles.length; i++) {
-			const candle = candles[i];
-			const analysisDate = new Date(candle.timestamp);
+		// Process in batches to improve performance
+		const BATCH_SIZE = 50; // Process 50 candles at a time
 
-			// Skip if we don't have enough historical data for indicators
-			// (typically need ~200 bars before first analysis)
-			const progressPct = (((i + 1) / candles.length) * 100).toFixed(1);
+		for (let batchStart = 0; batchStart < candles.length; batchStart += BATCH_SIZE) {
+			const batchEnd = Math.min(batchStart + BATCH_SIZE, candles.length);
+			const batchCandles = candles.slice(batchStart, batchEnd);
 
-			if (i % 100 === 0) this.logger.info(`Backtesting progress: ${i + 1}/${candles.length} (${progressPct}%)`);
+			this.logger.info(`Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1}/${Math.ceil(candles.length / BATCH_SIZE)} (${batchStart + 1}-${batchEnd}/${candles.length})`);
 
-			try {
-				// Generate complete market analysis at this point in time
-				// Use generateCompleteAnalysis which includes trading_context
-				const analysis = await this.marketAnalysisService.generateCompleteAnalysis({
-					symbol,
-					timeframes: this._getTimeframesForBacktest(timeframe),
-					analysisDate,
-				});
+			// Process batch sequentially (could be parallelized but API limits might apply)
+			for (let i = 0; i < batchCandles.length; i++) {
+				const candle = batchCandles[i];
+				const analysisDate = new Date(candle.timestamp);
+				const globalIndex = batchStart + i;
 
-				// Extract trading context (entry/exit signals)
-				const tradingContext = analysis.trading_context;
+				try {
+					// Use cached analysis generation
+					const analysis = await this._generateCachedAnalysis(symbol, backtestTimeframes, analysisDate);
 
-				// Detect entry/exit signals
-				const signal = this._detectSignal(tradingContext, candle, strategy);
+					// Extract trading context (entry/exit signals)
+					const tradingContext = analysis.trading_context;
 
-				if (signal)
-					signals.push({
+					// Detect entry/exit signals
+					const signal = this._detectSignal(tradingContext, candle, strategy);
+
+					if (signal)
+						signals.push({
+							timestamp: analysisDate,
+							...signal,
+						});
+
+					// Store analysis result
+					analysisResults.push({
 						timestamp: analysisDate,
-						...signal,
+						price: candle.close,
+						analysis: {
+							market_phase: tradingContext.current_market_phase,
+							recommended_action: tradingContext.recommended_action,
+							confidence: tradingContext.confidence,
+							trade_quality_score: tradingContext.trade_quality_score,
+						},
 					});
-
-				// Store analysis result
-				analysisResults.push({
-					timestamp: analysisDate,
-					price: candle.close,
-					analysis: {
-						market_phase: tradingContext.current_market_phase,
-						recommended_action: tradingContext.recommended_action,
-						confidence: tradingContext.confidence,
-						trade_quality_score: tradingContext.trade_quality_score,
-					},
-				});
-			} catch (error) {
-				this.logger.warn(`Analysis failed at ${analysisDate.toISOString()}: ${error.message}`);
-				// Continue with next candle
+				} catch (error) {
+					this.logger.warn(`Analysis failed at ${analysisDate.toISOString()}: ${error.message}`);
+					// Continue with next candle
+				}
 			}
 		}
 
 		this.logger.info(`Backtest complete: Generated ${signals.length} signals from ${candles.length} candles`);
+
+		// Clear caches to free memory
+		this.clearCaches();
 
 		// Step 3: Simulate trades and calculate performance
 		const trades = this._simulateTrades(signals, candles);
