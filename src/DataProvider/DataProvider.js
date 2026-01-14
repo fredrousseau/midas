@@ -132,6 +132,78 @@ export class DataProvider {
 	}
 
 	/**
+	 * Fetch OHLCV data in multiple batches when count exceeds adapter limit
+	 * Works backwards from endTime, fetching batches of size adapterLimit
+	 *
+	 * @private
+	 * @param {Object} options - Fetch options
+	 * @param {string} options.symbol - Trading symbol
+	 * @param {string} options.timeframe - Timeframe
+	 * @param {number} options.count - Total number of bars needed
+	 * @param {number} options.from - Start timestamp
+	 * @param {number} options.to - End timestamp
+	 * @param {number} options.adapterLimit - Maximum bars per API request
+	 * @returns {Promise<Array<Object>>} Combined OHLCV data from all batches
+	 */
+	async _fetchInBatches({ symbol, timeframe, count, from, to, adapterLimit }) {
+		const timeframeMs = this._timeframeToMs(timeframe);
+		const allBars = [];
+		let remainingCount = count;
+		let currentEndTime = to;
+
+		// Calculate number of batches needed
+		const totalBatches = Math.ceil(count / adapterLimit);
+		this.logger.verbose(`Fetching ${count} bars in ${totalBatches} batches (${adapterLimit} bars per batch)`);
+
+		let batchNum = 0;
+		while (remainingCount > 0) {
+			batchNum++;
+			const batchSize = Math.min(remainingCount, adapterLimit);
+
+			this.logger.verbose(`Batch ${batchNum}/${totalBatches}: fetching ${batchSize} bars ending at ${currentEndTime ? new Date(currentEndTime).toISOString() : 'now'}`);
+
+			// Fetch this batch
+			const batchData = await this.dataAdapter.fetchOHLC({
+				symbol,
+				timeframe,
+				count: batchSize,
+				from,
+				to: currentEndTime,
+			});
+
+			if (!batchData || batchData.length === 0) {
+				this.logger.warn(`Batch ${batchNum}/${totalBatches} returned no data, stopping batch fetch`);
+				break;
+			}
+
+			// Add to beginning of array (we're working backwards)
+			allBars.unshift(...batchData);
+
+			// Update for next batch
+			remainingCount -= batchData.length;
+
+			// If we got less than requested, we've hit the data limit
+			if (batchData.length < batchSize) {
+				this.logger.warn(`Batch ${batchNum}/${totalBatches} returned fewer bars than requested (${batchData.length}/${batchSize}), no more historical data available`);
+				break;
+			}
+
+			// Calculate the next batch's end time (one bar before the earliest bar we just fetched)
+			const earliestTimestamp = Math.min(...batchData.map(bar => bar.timestamp));
+			currentEndTime = earliestTimestamp - timeframeMs;
+
+			// Avoid hitting rate limits
+			if (remainingCount > 0) {
+				await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay between batches
+			}
+		}
+
+		this.logger.info(`Batch fetch complete: received ${allBars.length}/${count} bars in ${batchNum} batches`);
+
+		return allBars;
+	}
+
+	/**
 	 * Load OHLCV data for a symbol and timeframe
 	 * @param {Object} options - Load options
 	 * @param {string} options.symbol - Trading symbol (e.g., 'BTCUSDT')
@@ -198,7 +270,19 @@ export class DataProvider {
 			// If analysisDate is provided, use it as endTime (to) for Binance API
 			const endTime = analysisTimestamp || to;
 
-			const rawData = await this.dataAdapter.fetchOHLC({ symbol, timeframe, count, from, to: endTime });
+			// BATCH LOADING: Check if count exceeds adapter's limit
+			const adapterLimit = this.dataAdapter.constructor.MAX_LIMIT || 1000;
+			let rawData;
+
+			if (count > adapterLimit) {
+				// Need to fetch in batches
+				this.logger.info(`Count ${count} exceeds adapter limit ${adapterLimit}, fetching in batches`);
+				rawData = await this._fetchInBatches({ symbol, timeframe, count, from, to: endTime, adapterLimit });
+			} else {
+				// Single request
+				rawData = await this.dataAdapter.fetchOHLC({ symbol, timeframe, count, from, to: endTime });
+			}
+
 			this._validateOHLCVData(rawData);
 			let cleanedData = this._cleanOHLCVData(rawData);
 
