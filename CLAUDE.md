@@ -62,7 +62,15 @@ brew services start redis
 REDIS_ENABLED=true
 REDIS_HOST=localhost
 REDIS_PORT=6379
+REDIS_CACHE_TTL=300  # 5 minutes
+REDIS_MAX_BARS_PER_KEY=10000
 ```
+
+**Data provider settings:**
+- `MAX_DATA_POINTS=5000` - Maximum bars per API request (increase if your data source supports more)
+  - Binance supports up to ~1000-1500 depending on timeframe
+  - Set higher for backtesting with large datasets
+  - DataProvider will validate against this limit
 
 ## Architecture Overview
 
@@ -114,14 +122,21 @@ LAYER 5: API Exposure (REST endpoints + WebUI)
 
 ### Data Flow Architecture
 
-**Backtesting Challenge:**
-Without Redis, each analysis point during backtesting calls Binance API repeatedly (e.g., 720 candles × 3 timeframes = 2,160+ API calls). **Redis caching is essential for backtesting performance.**
+**Backtesting Architecture (Simplified 2026-01-13):**
 
-**Current Issue (as of last session):**
-- BacktestingService calls MarketAnalysisService.analyze() in a loop
-- Each analyze() call triggers StatisticalContextService to fetch OHLCV data
-- Without Redis cache, every call hits Binance API
-- **Solution needed:** Either enable Redis OR implement in-memory cache for backtest duration
+The BacktestingService is a **lightweight orchestrator** (462 lines) that delegates to existing services:
+
+- **MarketDataService** → DataProvider → Redis cache → BinanceAdapter (OHLCV data)
+- **MarketAnalysisService** → StatisticalContext, RegimeDetection, TradingContext (full analysis)
+- **BacktestingService** → Signal detection, trade simulation, performance metrics (backtesting logic)
+
+**Key points:**
+- NO duplicate caching (uses Redis via DataProvider)
+- NO duplicate OHLCV fetch logic (delegates to MarketDataService)
+- Parallel batch processing (10 candles/batch) for performance
+- **Redis is essential** for avoiding rate limits during backtesting
+
+See [BACKTEST_SIMPLIFICATION.md](BACKTEST_SIMPLIFICATION.md) for details.
 
 ## Important Code Patterns
 
@@ -181,7 +196,7 @@ app.post('/api/v1/endpoint',
 
 2. **Service Dependencies**
    - MarketAnalysisService requires: `dataProvider`, `indicatorService`, `logger`
-   - BacktestingService requires: `dataProvider`, `marketDataService`, `indicatorService`, `logger`
+   - BacktestingService requires: `marketDataService`, `marketAnalysisService`, `logger`
    - Missing any dependency causes "requires X instance in options" error
 
 3. **WebUI Error Display**
@@ -283,7 +298,7 @@ Navigate to `http://localhost:3000` after starting the server.
    - "DataProvider initialized with Redis-only cache" (or warning if disabled)
    - "IndicatorService initialized"
    - "MarketAnalysisService initialized"
-   - "BacktestingService initialized"
+   - "BacktestingService initialized (simplified orchestrator)" (lazy-loaded on first backtest)
 
 3. **Monitor API calls:**
    - Each request logs: `{ip} {method} {path} - {status} - {duration}ms`
