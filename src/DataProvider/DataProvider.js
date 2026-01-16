@@ -83,7 +83,6 @@ export class DataProvider {
 	 */
 	_validateOHLCVData(ohlcv) {
 		if (!Array.isArray(ohlcv) || !ohlcv.length) throw new Error('OHLCV data must be a non-empty array');
-		if (ohlcv.length > this.maxDataPoints) throw new Error(`Data exceeds maximum size (${ohlcv.length} > ${this.maxDataPoints})`);
 
 		const required = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
 		for (let i = 0; i < ohlcv.length; i++) {
@@ -191,11 +190,6 @@ export class DataProvider {
 			// Calculate the next batch's end time (one bar before the earliest bar we just fetched)
 			const earliestTimestamp = Math.min(...batchData.map(bar => bar.timestamp));
 			currentEndTime = earliestTimestamp - timeframeMs;
-
-			// Avoid hitting rate limits
-			if (remainingCount > 0) {
-				await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay between batches
-			}
 		}
 
 		this.logger.info(`Batch fetch complete: received ${allBars.length}/${count} bars in ${batchNum} batches`);
@@ -221,7 +215,7 @@ export class DataProvider {
 		const { symbol, timeframe = '1h', count = 200, from, to, analysisDate, useCache = true, detectGaps = true } = options;
 
 		if (!symbol) throw new Error('Symbol is required');
-		if (count < 1 || count > this.maxDataPoints) throw new Error(`Count must be between 1 and ${this.maxDataPoints}`);
+		if (count < 1) throw new Error('Count must be at least 1');
 
 		// Parse analysisDate to timestamp
 		let analysisTimestamp = null;
@@ -270,14 +264,16 @@ export class DataProvider {
 			// If analysisDate is provided, use it as endTime (to) for Binance API
 			const endTime = analysisTimestamp || to;
 
-			// BATCH LOADING: Check if count exceeds adapter's limit
+			// BATCH LOADING: Check if count exceeds the configured limit per request
+			// Use the smaller of adapter's hard limit and configured maxDataPoints
 			const adapterLimit = this.dataAdapter.constructor.MAX_LIMIT || 1000;
+			const batchLimit = Math.min(adapterLimit, this.maxDataPoints);
 			let rawData;
 
-			if (count > adapterLimit) {
+			if (count > batchLimit) {
 				// Need to fetch in batches
-				this.logger.info(`Count ${count} exceeds adapter limit ${adapterLimit}, fetching in batches`);
-				rawData = await this._fetchInBatches({ symbol, timeframe, count, from, to: endTime, adapterLimit });
+				this.logger.info(`Count ${count} exceeds batch limit ${batchLimit}, fetching in batches`);
+				rawData = await this._fetchInBatches({ symbol, timeframe, count, from, to: endTime, adapterLimit: batchLimit });
 			} else {
 				// Single request
 				rawData = await this.dataAdapter.fetchOHLC({ symbol, timeframe, count, from, to: endTime });
